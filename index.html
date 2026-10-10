@@ -23,6 +23,15 @@
         <span>Copier</span>
       </button>
     </div>
+    <!-- Test du micro (mission 4) : un bouton + une barre qui bouge avec la voix -->
+    <div class="mic">
+      <button class="mic-btn" id="micBtn" aria-pressed="false">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></svg>
+        <span>Tester le micro</span>
+      </button>
+      <div class="meter" id="meter" hidden><div class="meter-fill" id="meterFill"></div></div>
+    </div>
+    <p class="mic-msg" id="micMsg" role="status" hidden></p>
     <div class="display num" id="display" aria-live="polite"></div>
     <div class="pad" id="pad"></div>
     <button class="wide go" id="callBtn" disabled>
