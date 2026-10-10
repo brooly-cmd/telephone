@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Combiné</title>
+  <!-- Polices d'écriture (Manrope pour le texte, DM Mono pour les chiffres) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap">
+  <!-- La décoration de la page -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app">
+  <!-- Écran 1 : Accueil -->
+  <section class="screen" id="s1">
+    <div class="label">Mon numéro</div>
+    <div class="mine">
+      <span class="num" id="myCode">482 917</span>
+      <button class="copy" id="copyBtn" aria-label="Copier mon numéro">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+        <span>Copier</span>
+      </button>
+    </div>
+    <div class="display num" id="display" aria-live="polite"></div>
+    <div class="pad" id="pad"></div>
+    <button class="wide go" id="callBtn" disabled>
+      <svg viewBox="0 0 24 24" fill="currentColor"><use href="#ph"/></svg>
+      Appeler
+    </button>
+  </section>
+
+  <!-- Écran 2 : Ça sonne -->
+  <section class="screen" id="s2" hidden>
+    <div class="center">
+      <div class="rings"><div class="avatar" id="outAvatar"></div></div>
+      <div class="status">Ça sonne…</div>
+      <div class="big-num num" id="outCode">731 205</div>
+    </div>
+    <div class="bottom">
+      <button class="big stop" data-go="1" aria-label="Raccrocher"><svg viewBox="0 0 24 24" fill="#fff"><use href="#ph"/></svg></button>
+      <span class="cap">Raccrocher</span>
+    </div>
+  </section>
+
+  <!-- Écran 3 : Appel entrant -->
+  <section class="screen" id="s3" hidden>
+    <div class="center">
+      <div class="label">Appel entrant</div>
+      <div class="rings"><div class="avatar" id="inAvatar"></div></div>
+      <div class="big-num num" id="inCode">731 205</div>
+      <div class="cap">vous appelle</div>
+    </div>
+    <div class="pair">
+      <div>
+        <button class="big stop" data-go="1" aria-label="Refuser"><svg viewBox="0 0 24 24" fill="#fff"><use href="#ph"/></svg></button>
+        <span class="cap">Refuser</span>
+      </div>
+      <div>
+        <button class="big go" data-go="4" aria-label="Décrocher"><svg viewBox="0 0 24 24" fill="#fff"><use href="#ph"/></svg></button>
+        <span class="cap">Décrocher</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Écran 4 : Appel en cours -->
+  <section class="screen" id="s4" hidden>
+    <div class="center">
+      <div class="avatar" id="liveAvatar"></div>
+      <div class="big-num num small" id="liveCode">731 205</div>
+      <div class="label">En appel</div>
+      <div class="timer num" id="timer">00:00</div>
+    </div>
+    <div class="bottom">
+      <button class="big stop" data-go="1" aria-label="Raccrocher"><svg viewBox="0 0 24 24" fill="#fff"><use href="#ph"/></svg></button>
+      <span class="cap">Raccrocher</span>
+    </div>
+  </section>
+
+  <!-- Barre de test 1-2-3-4 (à enlever plus tard) -->
+  <nav class="tabs" role="tablist" aria-label="Écrans de test">
+    <button class="tab" role="tab" data-go="1" aria-selected="true"><b>1</b>Accueil</button>
+    <button class="tab" role="tab" data-go="2"><b>2</b>Ça sonne</button>
+    <button class="tab" role="tab" data-go="3"><b>3</b>Entrant</button>
+    <button class="tab" role="tab" data-go="4"><b>4</b>En cours</button>
+  </nav>
+</div>
+
+<!-- Le dessin du combiné, réutilisé sur tous les boutons -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="ph" viewBox="0 0 24 24"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></symbol>
+</svg>
+
+<!-- L'électricité de la page -->
+<script src="app.js"></script>
+</body>
+</html>
