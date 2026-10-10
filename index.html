@@ -55,6 +55,15 @@
       <div class="meter" id="meter" hidden><div class="meter-fill" id="meterFill"></div></div>
     </div>
     <p class="mic-msg" id="micMsg" role="status" hidden></p>
+    <!-- Mission 12 : activer les notifications (le bouton) et le voyant qui dit où on en est -->
+    <div class="mic notif">
+      <button class="mic-btn" id="notifBtn" hidden>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+        <span>Activer les notifications</span>
+      </button>
+      <span class="net" id="notifState">Notifications…</span>
+    </div>
+    <p class="mic-msg" id="notifMsg" role="status" hidden></p>
     <!-- Mission 6 : messages du standardiste et des appels (refusé, pas connecté…) -->
     <p class="mic-msg" id="callMsg" role="status" hidden></p>
     <!-- Les chiffres tapés. La case invisible par-dessus sert seulement à « Coller » un code (appui long sur téléphone). -->
@@ -164,6 +173,12 @@
       </label>
       <p class="mic-msg" id="formMsg" role="status" hidden></p>
       <button class="wide go save" type="submit">Enregistrer</button>
+      <!-- Mission 12 : envoyer une notification test à ce contact -->
+      <button class="mic-btn test-btn" type="button" id="testBtn" hidden>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+        <span>Envoyer une notification test</span>
+      </button>
+      <p class="mic-msg" id="testMsg" role="status" hidden></p>
       <button class="wide plain" type="button" id="delBtn" hidden>Supprimer ce contact</button>
       <!-- La question « Supprimer Noa ? » avant d'effacer pour de bon -->
       <div class="confirm" id="confirmBox" hidden>

@@ -1,5 +1,5 @@
 // Le téléphone : écrans (mission 2), micro (mission 4), numéro perso (mission 5), appels (mission 6), voix (mission 7),
-// chrono et sourdine (mission 8), répertoire (mission 9), page installable (mission 10).
+// chrono et sourdine (mission 8), répertoire (mission 9), page installable (mission 10), notifications (mission 12).
 (function(){
   let typed = "";                  // ce qu'on tape sur le clavier
   let friend = "";                 // le code de l'ami en ligne avec nous (appelé ou appelant)
@@ -251,6 +251,8 @@
     $("fCode").value = c ? fmt(c.code) : "";
     $("fMail").value = c ? (c.mail || "") : "";
     $("delBtn").hidden = !c;
+    $("testBtn").hidden = !c;   // mission 12 : le test, seulement pour un contact déjà enregistré
+    testMessage("");
     $("confirmBox").hidden = true;
     formMessage("");
     go(6);
@@ -613,4 +615,163 @@
 
   // Mission 10 : le « veilleur » (sw.js). « updateViaCache: none » = le navigateur vérifie toujours s'il y a un nouveau veilleur.
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
+
+  // ---------- Mission 12 : les notifications ----------
+  // Le navigateur fabrique une « adresse de notification » (abonnement) chez Google, Apple, Mozilla ou Microsoft.
+  // On la confie au relais avec mon numéro et un jeton secret (la clé de ma boîte aux lettres, tirée une seule fois).
+  const RELAIS = "https://telephone-relais.cr2dh48njb.workers.dev";
+  const VAPID = "BExhiDchXV3mRcJOz3Vu4Q07e0VBBP-Ed7BUFaq7YSnydN7wjwjx-EOTC9pBTfI2dC9qXfach1e-8hWFhv8iJ1U";   // clé publique, faite pour être visible
+  const b64urlToBytes = s => Uint8Array.from(atob(s.replace(/-/g,"+").replace(/_/g,"/") + "===".slice((s.length+3)%4)), ch => ch.charCodeAt(0));
+  const bytesToB64url = a => btoa(String.fromCharCode(...new Uint8Array(a))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+
+  function notifState(kind, text){
+    $("notifState").textContent = "Notifications : " + text;
+    $("notifState").className = "net " + kind;              // on (vert), off (rouge), no (gris), "" (en cours)
+    // Pas de bouton quand c'est déjà fait, impossible, ou refusé (il faut d'abord débloquer dans les réglages)
+    $("notifBtn").hidden = kind === "on" || kind === "no" || text === "refusées";
+  }
+  function notifMessage(text, info){
+    $("notifMsg").innerHTML = text;   // nos propres phrases seulement (jamais un texte venu d'ailleurs)
+    $("notifMsg").hidden = !text;
+    $("notifMsg").classList.toggle("info", !!info);
+  }
+  // Pourquoi les notifications sont impossibles ici (rien = c'est possible)
+  function whyNoNotif(){
+    if (!window.isSecureContext) return "il faut ouvrir la page avec son adresse en https.";
+    if (!saved) return "ce navigateur ne peut pas garder ton inscription (navigation privée ?).";
+    const v = navigator.userAgent.match(/OS (\d+)_(\d+)/);
+    const iosOld = ios && v && (+v[1] < 16 || (+v[1] === 16 && +v[2] < 4));
+    if (iosOld) return "il faut iOS 16.4 ou plus récent (Réglages → Général → Mise à jour logicielle).";
+    if (ios && !installed) return "sur iPhone, installe d'abord la page sur l'écran d'accueil, puis ouvre l'icône.";
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window))
+      return "ce navigateur ne sait pas les recevoir (trop ancien ?). Essaie Edge, Chrome, Firefox ou Safari à jour.";
+    return "";
+  }
+  // Comment réautoriser, selon l'appareil
+  function howToAllow(){
+    if (ios) return "Pour les autoriser : <b>Réglages de l'iPhone → Notifications → Lumexa Telephone → Autoriser les notifications</b>.";
+    if (/Firefox/.test(navigator.userAgent)) return "Pour les autoriser : clique sur l'icône à gauche de l'adresse, enlève le blocage des <b>Notifications</b>, puis recharge la page.";
+    return "Pour les autoriser : clique sur le <b>cadenas</b> à gauche de l'adresse (dans l'appli installée : menu <b>…</b> → Infos de l'appli), mets <b>Notifications</b> sur Autoriser, puis recharge la page.";
+  }
+  const braveHelp = "Brave bloque les notifications au départ. Ouvre <b>brave://settings/privacy</b>, allume <b>« Utiliser les services Google pour la messagerie push »</b>, redémarre Brave, puis réessaie. (Ou utilise Edge.)";
+
+  // Mon jeton secret : tiré une seule fois, puis gardé dans le navigateur (comme mon numéro)
+  function myToken(){
+    let t = localStorage.getItem("jetonNotif");
+    if (!/^[\w-]{32}$/.test(t || "")){ t = bytesToB64url(crypto.getRandomValues(new Uint8Array(24))); localStorage.setItem("jetonNotif", t); }
+    return t;
+  }
+  // Parler au relais (réponse { ok, erreur, message }). Sans réponse au bout de 10 s, on abandonne.
+  async function relay(door, body){
+    const ctrl = new AbortController(), stop = setTimeout(() => ctrl.abort(), 10000);
+    try {
+      const r = await fetch(RELAIS + door, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctrl.signal });
+      return await r.json();
+    } catch(e){
+      return { ok: false, erreur: "injoignable", message: "Le relais ne répond pas. Vérifie ta connexion internet." };
+    } finally { clearTimeout(stop); }
+  }
+  // Le veilleur prêt (10 s maximum)
+  function swReady(){
+    return Promise.race([navigator.serviceWorker.ready, new Promise((_, no) => setTimeout(() => no(new Error("veilleur")), 10000))]);
+  }
+  // Mon abonnement : celui qui existe déjà, ou un nouveau (avec la bonne clé publique)
+  async function mySubscription(create){
+    const reg = await swReady();
+    let sub = await reg.pushManager.getSubscription();
+    const key = sub && sub.options && sub.options.applicationServerKey;
+    if (sub && key && bytesToB64url(key) !== VAPID){ await sub.unsubscribe(); sub = null; }   // vieil abonnement avec une autre clé
+    if (!sub && create) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlToBytes(VAPID) });
+    return sub;
+  }
+  // Donner l'abonnement au relais (seulement s'il a changé depuis la dernière fois)
+  async function sendSubscription(sub, force){
+    let last = ""; try { last = localStorage.getItem("notifEnvoyee") || ""; } catch(e){}
+    if (!force && last === sub.endpoint) return { ok: true };
+    const r = await relay("/abonner", { code: MY, jeton: myToken(), abonnement: sub.toJSON() });
+    if (r.ok) try { localStorage.setItem("notifEnvoyee", sub.endpoint); } catch(e){}
+    return r;
+  }
+  function showRelayError(r){
+    notifState("off", "pas activées");
+    notifMessage(r.erreur === "jeton_different"
+      ? "Ce numéro est déjà inscrit aux notifications depuis un autre appareil ou navigateur."
+      : (r.message || "Le relais a refusé l'inscription.") + " Réessaie avec le bouton.");
+  }
+
+  // Regarder où on en est (à l'ouverture, et à chaque retour sur la page)
+  let notifBusy = false;
+  async function refreshNotif(){
+    if (notifBusy) return;
+    const why = whyNoNotif();
+    if (why){ notifState("no", "pas possibles ici"); notifMessage("Notifications pas possibles ici : " + why, true); return; }
+    if (Notification.permission === "denied"){ notifState("off", "refusées"); notifMessage("Notifications refusées. " + howToAllow()); return; }
+    if (Notification.permission !== "granted"){ notifState("", "pas encore activées"); notifMessage(""); return; }
+    // Permission déjà donnée : on vérifie en silence que le relais a la bonne adresse
+    notifBusy = true;
+    try {
+      const sub = await mySubscription(true);
+      const r = await sendSubscription(sub, false);
+      if (r.ok){ notifState("on", "activées"); notifMessage(""); }
+      else showRelayError(r);   // (pas d'internet : la page réessaie toute seule au prochain retour)
+    } catch(e){
+      notifState("", "pas encore activées");
+      notifMessage(navigator.brave ? braveHelp : "");
+    } finally { notifBusy = false; }
+  }
+
+  // Le bouton « Activer les notifications ». La question est posée TOUT DE SUITE, pendant le toucher :
+  // l'iPhone refuse de la poser si on attend quoi que ce soit avant.
+  $("notifBtn").addEventListener("click", async () => {
+    if (notifBusy || whyNoNotif()) return;
+    notifBusy = true;
+    const asked = Notification.requestPermission();
+    notifState("", "activation…"); notifMessage("");
+    try {
+      const perm = await asked;
+      if (perm === "denied"){ notifState("off", "refusées"); notifMessage("Tu as refusé. " + howToAllow()); return; }
+      if (perm !== "granted"){
+        notifState("", "pas encore activées");
+        notifMessage("Tu n'as pas répondu à la question. Si tu ne l'as pas vue, regarde la petite <b>cloche</b> dans la barre d'adresse, puis réessaie.", true);
+        return;
+      }
+      let sub;
+      try { sub = await mySubscription(true); }
+      catch(e){
+        notifState("off", "pas activées");
+        notifMessage(navigator.brave ? braveHelp : "Le navigateur n'a pas pu créer ton adresse de notification (" + (e.name || e.message) + "). Vérifie internet et réessaie.");
+        return;
+      }
+      const r = await sendSubscription(sub, true);
+      if (r.ok){ notifState("on", "activées"); notifMessage("C'est prêt : tes amis pourront te prévenir, même page fermée.", true); }
+      else showRelayError(r);
+    } finally { notifBusy = false; }
+  });
+
+  refreshNotif();
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refreshNotif(); });
+
+  // Dans la fiche d'un contact : « Envoyer une notification test »
+  function testMessage(text, info){
+    $("testMsg").textContent = text;
+    $("testMsg").hidden = !text;
+    $("testMsg").classList.toggle("info", !!info);
+  }
+  $("testBtn").addEventListener("click", async () => {
+    if (!editing || $("testBtn").disabled) return;
+    const c = editing, label = $("testBtn").querySelector("span");
+    $("testBtn").disabled = true; label.textContent = "Envoi…"; testMessage("");
+    const r = await relay("/notifier", { de: MY, vers: c.code, type: "test" });
+    $("testBtn").disabled = false; label.textContent = "Envoyer une notification test";
+    if (c !== editing) return;   // on a quitté la fiche pendant l'envoi
+    const minutes = s => Math.max(1, Math.ceil(s / 60));
+    const texts = {
+      pas_abonne:      c.nom + " n'a pas activé les notifications sur ce numéro.",
+      rafale:          "Notification déjà envoyée, patiente un peu (" + r.attendre + " s).",
+      trop_par_heure:  "Trop de notifications vers " + c.nom + " cette heure-ci. Réessaie dans " + minutes(r.attendre) + " min.",
+      abonnement_mort: c.nom + " ne reçoit plus les notifications (page désinstallée ?). Il doit les réactiver.",
+    };
+    if (r.ok) testMessage("Notification test envoyée à " + c.nom + ".", true);
+    else testMessage(texts[r.erreur] || r.message || "L'envoi n'a pas marché.");
+  });
 })();

@@ -134,3 +134,12 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
 /* Un nom à la place du numéro sur les écrans d'appel : police normale, coupé proprement s'il est long */
 .big-num.name{font-family:var(--f-ui);font-weight:700;letter-spacing:0;font-size:clamp(30px,6vh,44px);max-width:100%;overflow-wrap:anywhere}
 .big-num.small.name{font-size:clamp(24px,4.4vh,32px)}
+
+/* --- Mission 12 : notifications --- */
+/* Le voyant « Notifications : activées / refusées / pas possibles ici » (même style que « En ligne ») */
+.notif{flex-wrap:wrap;gap:8px 12px}
+.notif .net{font-size:13px;color:var(--muted)}
+.net.no{color:var(--muted)}
+.net.no::before{background:transparent;border:1.5px solid var(--muted)}
+/* Le bouton « Envoyer une notification test » dans la fiche d'un contact */
+.test-btn{justify-content:center;min-height:52px}
