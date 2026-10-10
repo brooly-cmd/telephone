@@ -4,6 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Combiné</title>
+  <!-- Mission 10 : la « carte d'identité » (nom, couleurs, icône) pour installer la page sur l'écran d'accueil -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0d1117">
+  <link rel="icon" href="icon-192.png" type="image/png">
+  <!-- Pour l'iPhone : son icône, son nom, et l'ouverture en plein écran -->
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-title" content="Lumexa Telephone">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <!-- Polices d'écriture (Manrope pour le texte, DM Mono pour les chiffres) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap">
@@ -31,6 +41,11 @@
     </div>
     <!-- Mission 5 : message si le navigateur ne peut pas garder le numéro -->
     <p class="mic-msg" id="codeMsg" role="status" hidden></p>
+    <!-- Mission 10 : sur iPhone (pas encore installé), comment ajouter la page sur l'écran d'accueil -->
+    <div class="mic-msg info ios-help" id="iosHelp" role="status" hidden>
+      <p id="iosText"></p>
+      <button class="mic-btn" id="iosOk">Compris</button>
+    </div>
     <!-- Test du micro (mission 4) : un bouton + une barre qui bouge avec la voix -->
     <div class="mic">
       <button class="mic-btn" id="micBtn" aria-pressed="false">

@@ -50,6 +50,9 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
 .net.on{color:var(--go)} .net.on::before{background:var(--go)}
 .net.off{color:var(--stop)} .net.off::before{background:var(--stop)}
 .mic-msg.info{color:var(--fg);background:var(--surface);border-color:var(--line)}
+/* Mission 10 : l'aide « installer sur iPhone », texte à gauche et bouton Compris à droite */
+.ios-help{display:flex;align-items:center;gap:10px}
+.ios-help p{margin:0;flex:1;min-width:0}
 /* La case « Coller » : invisible, posée sur les chiffres tapés */
 .display-wrap{position:relative;width:100%;border-radius:14px}
 .display-wrap:focus-within{box-shadow:0 0 0 2px var(--line)}

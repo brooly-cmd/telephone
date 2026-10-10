@@ -1,5 +1,5 @@
 // Le téléphone : écrans (mission 2), micro (mission 4), numéro perso (mission 5), appels (mission 6), voix (mission 7),
-// chrono et sourdine (mission 8), répertoire (mission 9).
+// chrono et sourdine (mission 8), répertoire (mission 9), page installable (mission 10).
 (function(){
   let typed = "";                  // ce qu'on tape sur le clavier
   let friend = "";                 // le code de l'ami en ligne avec nous (appelé ou appelant)
@@ -592,4 +592,25 @@
   $("hangBtn").addEventListener("click", () => { send({ t: "raccroche" }); endCall("Appel terminé.", true); });
 
   startPeer();
+
+  // Mission 10 : sur iPhone / iPad, tant que la page n'est pas installée, une aide courte pour l'ajouter à l'écran d'accueil.
+  // (Les iPad récents se présentent comme un Mac : on les reconnaît à l'écran tactile.)
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const installed = navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
+  let helpSeen = false;
+  try { helpSeen = localStorage.getItem("aideIphoneVue") === "1"; } catch(e){}
+  if (ios && !installed && !helpSeen){
+    const notSafari = /CriOS|FxiOS|EdgiOS|OPiOS/.test(navigator.userAgent);   // Chrome, Firefox, Edge, Opera sur iPhone
+    $("iosText").innerHTML = notSafari
+      ? "Pour installer le téléphone, ouvre cette page dans <b>Safari</b>, puis <b>Partager → Sur l'écran d'accueil</b>."
+      : "Pour installer le téléphone : <b>Safari → Partager → Sur l'écran d'accueil</b>. Ensuite, ouvre toujours l'icône (elle aura son propre numéro).";
+    $("iosHelp").hidden = false;
+  }
+  $("iosOk").addEventListener("click", () => {
+    $("iosHelp").hidden = true;
+    try { localStorage.setItem("aideIphoneVue", "1"); } catch(e){}
+  });
+
+  // Mission 10 : le « veilleur » (sw.js). « updateViaCache: none » = le navigateur vérifie toujours s'il y a un nouveau veilleur.
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
 })();
