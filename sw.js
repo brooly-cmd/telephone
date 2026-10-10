@@ -1,4 +1,5 @@
 // Le veilleur (service worker), mission 10 : il rend la page installable. Mission 12 : il reçoit les notifications.
+// Mission 13 : il écrit le nom de l'appelant (« Noa t'appelle ») et fait rejoindre l'appel quand on touche la notification.
 // Règle d'or : toujours la version fraîche d'internet. La copie rangée sert SEULEMENT quand il n'y a pas d'internet,
 // pour afficher la page (avec « Vérifie ta connexion internet ») au lieu d'un écran d'erreur.
 const RANGEMENT = "telephone-secours";
@@ -38,32 +39,70 @@ self.addEventListener("fetch", e => {
 // Règle de l'iPhone : chaque message reçu DOIT afficher une notification (sinon il coupe l'abonnement).
 const VAPID = "BExhiDchXV3mRcJOz3Vu4Q07e0VBBP-Ed7BUFaq7YSnydN7wjwjx-EOTC9pBTfI2dC9qXfach1e-8hWFhv8iJ1U";
 
+// Mission 13 : le nom de l'appelant, lu dans MON répertoire. Le veilleur ne peut pas ouvrir le localStorage,
+// alors la page lui range une copie { nom, code } dans le tiroir IndexedDB « telephone » (casier « repertoire »).
+// Rien trouvé (ou tiroir qui ne répond pas en 2 s) : "" et on affichera le numéro.
+function nameFromBook(code){
+  const look = new Promise(ok => {
+    try {
+      const open = indexedDB.open("telephone", 1);
+      open.onupgradeneeded = () => open.result.createObjectStore("tiroir");
+      open.onerror = () => ok("");
+      open.onsuccess = () => {
+        const db = open.result;
+        try {
+          const get = db.transaction("tiroir").objectStore("tiroir").get("repertoire");
+          get.onsuccess = () => {
+            const c = Array.isArray(get.result) && get.result.find(x => x && x.code === code);
+            db.close(); ok(c && typeof c.nom === "string" ? c.nom : "");
+          };
+          get.onerror = () => { db.close(); ok(""); };
+        } catch (err) { db.close(); ok(""); }
+      };
+    } catch (err) { ok(""); }
+  });
+  return Promise.race([look, new Promise(ok => setTimeout(() => ok(""), 2000))]);
+}
+
 self.addEventListener("push", e => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (err) {}
-  const de = /^[1-9]\d{5}$/.test(d.de) ? d.de.slice(0, 3) + " " + d.de.slice(3) : "";
+  const ok = /^[1-9]\d{5}$/.test(d.de);
+  const num = ok ? d.de.slice(0, 3) + " " + d.de.slice(3) : "";
   const test = d.type === "test";
-  // (Mission 13 : le nom tiré du répertoire et « toucher pour décrocher ». Pour l'instant, le numéro.)
-  const title = test ? "Notification test" : (de ? "Le " + de + " t'appelle" : "Appel entrant");
-  const body = test ? (de ? "Envoyée par le " + de + ". Les notifications marchent !" : "Les notifications marchent !")
-                    : "Touche pour ouvrir le téléphone.";
-  e.waitUntil(self.registration.showNotification(title, {
-    body,
-    icon: "icon-192.png",
-    tag: test ? "test" : "appel",   // une nouvelle notification du même genre remplace l'ancienne
-    renotify: true,                 // … et fait quand même sonner / vibrer
-    data: { type: d.type, de: d.de },
-  }));
+  e.waitUntil((async () => {
+    const nom = ok ? await nameFromBook(d.de) : "";
+    const qui = nom || (num ? "Le " + num : "");                 // « Noa » ou « Le 482 917 »
+    const title = test ? "Notification test" : (qui ? qui + " t'appelle" : "Appel entrant");
+    const body = test ? (qui ? "Envoyée par " + (nom || "le " + num) + ". Les notifications marchent !" : "Les notifications marchent !")
+                      : "Touche pour décrocher.";
+    await self.registration.showNotification(title, {
+      body,
+      icon: "icon-192.png",
+      tag: test ? "test" : "appel",   // une nouvelle notification du même genre remplace l'ancienne
+      renotify: true,                 // … et fait quand même sonner / vibrer
+      requireInteraction: !test,      // sur PC, l'appel reste à l'écran jusqu'à ce qu'on le touche ou le ferme
+      vibrate: test ? undefined : [300, 150, 300, 150, 300],
+      data: { type: d.type, de: d.de, heure: d.heure },
+    });
+  })());
 });
 
-// Toucher la notification : on remet la page devant si elle est ouverte, sinon on l'ouvre
+// Toucher la notification : on remet la page devant si elle est ouverte, sinon on l'ouvre.
+// Mission 13 : pour un appel, la page rejoint l'appel tout de suite (ou rappelle si c'est déjà fini).
 self.addEventListener("notificationclick", e => {
   e.notification.close();
+  const d = e.notification.data || {};
+  const appel = d.type === "appel" && /^[1-9]\d{5}$/.test(d.de);
   e.waitUntil((async () => {
     const pages = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     const mine = pages.find(p => p.url.startsWith(self.registration.scope));
-    if (mine && "focus" in mine) return mine.focus();
-    return self.clients.openWindow(self.registration.scope);
+    if (mine){
+      if (appel) mine.postMessage({ t: "rejoindre", de: d.de });   // le petit mot glissé à la page déjà ouverte
+      try { if ("focus" in mine) await mine.focus(); } catch (err) {}
+      return;
+    }
+    return self.clients.openWindow(self.registration.scope + (appel ? "?appel=" + d.de : ""));
   })());
 });
 

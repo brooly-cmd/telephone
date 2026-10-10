@@ -84,6 +84,8 @@
       <div class="rings"><div class="avatar" id="outAvatar"></div></div>
       <div class="status" id="outStatus">Ça sonne…</div>
       <div class="cap" id="outHint"></div>
+      <!-- Mission 13 : si l'iPhone veut un toucher avant d'ouvrir le micro (page ouverte par la notification) -->
+      <button class="mic-btn" id="joinBtn" hidden>Toucher pour rejoindre</button>
       <div class="big-num num" id="outCode">731 205</div>
     </div>
     <div class="bottom">
@@ -167,9 +169,6 @@
       </label>
       <label class="field">Code (6 chiffres)
         <input id="fCode" class="num" inputmode="numeric" maxlength="9" autocomplete="off" placeholder="ex. 482 917">
-      </label>
-      <label class="field"><span>Mail <span class="opt">(facultatif)</span></span>
-        <input id="fMail" type="email" inputmode="email" autocomplete="off" placeholder="ex. noa@mail.fr">
       </label>
       <p class="mic-msg" id="formMsg" role="status" hidden></p>
       <button class="wide go save" type="submit">Enregistrer</button>

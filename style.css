@@ -111,7 +111,6 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
 .who{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .who b{font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .who .num{color:var(--muted);font-size:13px}
-.who .mail{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sq{flex:none;width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--surface-2);color:var(--fg)}
 .sq svg{width:22px;height:22px}
 .sq.go{background:var(--go);color:#fff}
@@ -120,7 +119,6 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
 #s6{overflow-y:auto}
 .form{width:100%;display:flex;flex-direction:column;gap:14px}
 .field{display:flex;flex-direction:column;gap:6px;font-weight:600;color:var(--muted);font-size:13px}
-.field .opt{font-weight:400}
 .field input{font:inherit;font-size:17px;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:14px;min-height:52px;padding:0 16px;font-weight:600}
 .field input.num{font-family:var(--f-num)}
 .field input:focus{outline:none;border-color:var(--accent)}

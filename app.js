@@ -1,5 +1,6 @@
 // Le téléphone : écrans (mission 2), micro (mission 4), numéro perso (mission 5), appels (mission 6), voix (mission 7),
-// chrono et sourdine (mission 8), répertoire (mission 9), page installable (mission 10), notifications (mission 12).
+// chrono et sourdine (mission 8), répertoire (mission 9), page installable (mission 10), notifications (mission 12),
+// prévenir l'ami par notification et rejoindre l'appel en la touchant (mission 13).
 (function(){
   let typed = "";                  // ce qu'on tape sur le clavier
   let friend = "";                 // le code de l'ami en ligne avec nous (appelé ou appelant)
@@ -29,14 +30,30 @@
   }
 
   // Mission 9 : le répertoire, rangé dans le navigateur (localStorage) sous le nom « repertoire ».
-  // C'est une liste de fiches { nom, code, mail } ; le mail est facultatif (il servira à la mission 11).
+  // C'est une liste de fiches { nom, code }. (Mission 13 : le mail des anciennes fiches ne sert plus, on l'oublie.)
   let book = [];
   try { book = JSON.parse(localStorage.getItem("repertoire") || "[]"); } catch(e){ book = []; }
   if (!Array.isArray(book)) book = [];
-  book = book.filter(c => c && typeof c.nom === "string" && /^[1-9]\d{5}$/.test(c.code));
+  book = book.filter(c => c && typeof c.nom === "string" && /^[1-9]\d{5}$/.test(c.code)).map(c => ({ nom: c.nom, code: c.code }));
   function saveBook(){
-    try { localStorage.setItem("repertoire", JSON.stringify(book)); return true; } catch(e){ return false; }
+    try { localStorage.setItem("repertoire", JSON.stringify(book)); } catch(e){ return false; }
+    copyBookForSW();
+    return true;
   }
+  // Mission 13 : le veilleur (sw.js) ne peut pas lire le localStorage. On range une copie des noms et codes
+  // dans un tiroir qu'il sait ouvrir (IndexedDB), pour qu'il écrive « Noa t'appelle » même page fermée.
+  function copyBookForSW(){
+    try {
+      const open = indexedDB.open("telephone", 1);
+      open.onupgradeneeded = () => open.result.createObjectStore("tiroir");
+      open.onsuccess = () => {
+        const db = open.result, tx = db.transaction("tiroir", "readwrite");
+        tx.objectStore("tiroir").put(book.map(c => ({ nom: c.nom, code: c.code })), "repertoire");
+        tx.oncomplete = tx.onerror = () => db.close();
+      };
+    } catch(e){}
+  }
+  copyBookForSW();   // à chaque ouverture aussi (pour les répertoires créés avant la mission 13)
   const contactOf = code => book.find(c => c.code === code);
   const nameOf = code => { const c = contactOf(code); return c ? c.nom : ""; };
   // Pour les phrases : « Noa » si on le connaît, sinon « le 482 917 »
@@ -232,7 +249,6 @@
       const nm = document.createElement("b"); nm.textContent = c.nom;
       const cd = document.createElement("span"); cd.className = "num"; cd.textContent = fmt(c.code);
       info.append(nm, cd);
-      if (c.mail){ const ml = document.createElement("span"); ml.className = "mail"; ml.textContent = c.mail; info.appendChild(ml); }
       const edit = iconBtn("", "Modifier " + c.nom,
         '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/></svg>',
         () => openForm(c));
@@ -249,7 +265,6 @@
     $("formTitle").textContent = c ? "Modifier le contact" : "Nouveau contact";
     $("fName").value = c ? c.nom : "";
     $("fCode").value = c ? fmt(c.code) : "";
-    $("fMail").value = c ? (c.mail || "") : "";
     $("delBtn").hidden = !c;
     $("testBtn").hidden = !c;   // mission 12 : le test, seulement pour un contact déjà enregistré
     testMessage("");
@@ -267,16 +282,14 @@
     e.preventDefault();
     const nom = $("fName").value.trim().replace(/\s+/g, " ");
     const code = $("fCode").value.replace(/\D/g, "");   // « 482 917 » devient 482917
-    const mail = $("fMail").value.trim();
     if (!nom) return formMessage("Écris un nom pour ce contact.");
     if (code.length !== 6) return formMessage("Le code doit avoir 6 chiffres (j'en ai trouvé " + code.length + ").");
     if (code[0] === "0") return formMessage("Un code ne commence jamais par 0. Vérifie le numéro de ton ami.");
     if (code === MY) return formMessage("C'est ton propre numéro ! Mets le code d'un ami.");
     const twin = book.find(c => c.code === code && c !== editing);
     if (twin) return formMessage("Ce code est déjà enregistré pour " + twin.nom + ".");
-    if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) return formMessage("Ce mail n'a pas l'air complet (exemple : noa@mail.fr). Tu peux aussi laisser la case vide.");
     const before = book;
-    book = book.filter(c => c !== editing).concat({ nom, code, mail });
+    book = book.filter(c => c !== editing).concat({ nom, code });
     if (!saveBook()){
       book = before;
       return formMessage("Ce navigateur ne peut pas garder ton répertoire (navigation privée ?). Le contact n'est pas enregistré.");
@@ -356,7 +369,11 @@
   function onPeerError(p, e){
     if (p !== peer) return;
     if (e.type === "peer-unavailable"){   // l'ami n'a pas la page ouverte
-      if (state === "calling") endCall(Who(friend) + " n'est pas connecté pour le moment (sa page est fermée).");
+      if (state !== "calling") return;
+      // Mission 13 : en rejoignant depuis une notification, l'appelant n'est plus là : appel manqué.
+      // Sinon, ça continue de sonner : c'est la notification qui va le prévenir.
+      if (joining) endCall("Appel manqué " + ofWho(friend) + ". " + Who(friend) + " n'est plus en ligne.");
+      else if (reach){ reach.online = false; showRing(); }
       return;
     }
     setNet("off");
@@ -487,30 +504,101 @@
     plugMedia(mc);
   }
 
-  // J'appelle un code
-  async function startCall(code){
+  // ---------- Mission 13 : prévenir l'ami par notification ----------
+  // Pendant que ça sonne, on suit deux nouvelles : « sa page a répondu ? » (online) et « la notification est partie ? » (notif).
+  let reach = null;      // { online: true / false / null (on ne sait pas encore), notif: réponse du relais }
+  let joining = false;   // true = je rejoins l'appel d'un ami, après avoir touché sa notification
+  function ringHint(text){ $("outStatus").textContent = "Ça sonne…"; $("outHint").textContent = text; }
+  function showRing(){
+    if (state !== "calling" || joining || !reach || !callStream) return;
+    if (reach.online === true) return ringHint("");   // sa page est ouverte : ça sonne chez lui, comme avant
+    if (reach.online !== false) return;               // on attend encore la réponse du standardiste
+    const n = reach.notif;
+    if (!n) return ringHint("Sa page est fermée : envoi de la notification…");
+    const minutes = s => Math.max(1, Math.ceil(s / 60));
+    if (n.ok) ringHint("Notification envoyée (sa page était fermée).");
+    else if (n.erreur === "rafale") ringHint("Notification déjà envoyée, patiente un peu (" + n.attendre + " s).");
+    else if (n.erreur === "trop_par_heure") ringHint("Trop de notifications vers " + who(friend) + " cette heure-ci (réessaie dans " + minutes(n.attendre) + " min). Celles déjà envoyées marchent encore.");
+    else if (n.erreur === "pas_abonne") endCall(Who(friend) + " n'est pas connecté (sa page est fermée) et n'a pas activé les notifications.");
+    else if (n.erreur === "abonnement_mort") endCall(Who(friend) + " n'est pas connecté (sa page est fermée) et ne reçoit plus les notifications. Il doit les réactiver.");
+    else endCall(Who(friend) + " n'est pas connecté (sa page est fermée), et la notification n'a pas pu partir. " + (n.message || ""));
+  }
+  // Attendre que la ligne avec le standardiste soit prête (la page vient peut-être juste de s'ouvrir)
+  function peerReady(ms){
+    const t0 = Date.now();
+    return new Promise(ok => (function check(){
+      if (peer && peer.open) ok(true);
+      else if (Date.now() - t0 > ms) ok(false);
+      else setTimeout(check, 200);
+    })());
+  }
+  // Fermer la notification « … t'appelle » quand on s'en occupe dans la page (décroché, refusé, rejoint)
+  function closeCallNotif(){
+    if (!("serviceWorker" in navigator)) return;
+    navigator.serviceWorker.getRegistration()
+      .then(reg => reg ? reg.getNotifications({ tag: "appel" }) : [])
+      .then(list => list.forEach(n => n.close())).catch(() => {});
+  }
+  // L'ami a touché la notification « Noa t'appelle » (page ouverte par le veilleur, ou remise devant)
+  function joinFromNotif(code){
+    if (!/^[1-9]\d{5}$/.test(code) || code === MY) return;
+    closeCallNotif();
+    if (state === "ringing" && friend === code) return answer();   // ça sonnait déjà dans la page : on décroche
+    if (state === "idle"){ go(1); startCall(code, true); }
+  }
+  // Le micro est bloqué sans toucher l'écran (ça peut arriver sur iPhone) : un bouton pour réessayer avec un toucher
+  function askMicByTouch(){
+    return new Promise(ok => {
+      $("outStatus").textContent = "Micro…";
+      $("outHint").textContent = "Touche le bouton pour autoriser le micro et rejoindre l'appel.";
+      $("joinBtn").hidden = false;
+      $("joinBtn").onclick = () => { $("joinBtn").hidden = true; ok(openCallMic()); };
+    });
+  }
+
+  // J'appelle un code. join = true : je rejoins l'appel d'un ami qui m'a prévenu par notification (mission 13).
+  async function startCall(code, join){
     if (state !== "idle" || !/^\d{6}$/.test(code)) return;
     if (code === MY){ callMessage("C'est ton propre numéro ! Tape le code d'un ami."); return; }
-    if (!peer || !peer.open){ callMessage("Pas encore connecté au standardiste. Attends que « En ligne » s'affiche en haut, puis réessaie."); return; }
+    if (!join && (!peer || !peer.open)){ callMessage("Pas encore connecté au standardiste. Attends que « En ligne » s'affiche en haut, puis réessaie."); return; }
     callMessage("");
     friend = code; typed = ""; renderDisplay();
     stopMic();             // si le test du micro tournait, on l'arrête
-    state = "calling";
+    state = "calling"; joining = !!join;
     go(2);
     // Mission 7 : j'allume mon micro avant de faire sonner l'ami, pour que la voix passe dès qu'il décroche
     const attempt = callId;
     $("outStatus").textContent = "Micro…";
-    $("outHint").textContent = "Autorise le micro pour que ton ami t'entende.";
+    $("outHint").textContent = !join ? "Autorise le micro pour que ton ami t'entende."
+      : ios ? "Autorise le micro pour rejoindre l'appel. L'iPhone peut te redemander la permission à chaque appel : c'est normal."
+      : "Autorise le micro pour rejoindre l'appel.";
     let s;
     try { s = await openCallMic(); }
-    catch(e){ if (attempt === callId) endCall(micError(e)); return; }
+    catch(e){
+      // Mission 13 : page ouverte par la notification, sans toucher l'écran : l'iPhone peut exiger un toucher
+      if (join && attempt === callId && e && e.name === "NotAllowedError"){
+        try { s = await askMicByTouch(); } catch(e2){ e = e2; }
+      }
+      if (!s){ if (attempt === callId) endCall(micError(e)); return; }
+    }
     if (attempt !== callId){ s.getTracks().forEach(t => t.stop()); return; }   // appel annulé pendant la question du micro
     callStream = s;
-    $("outStatus").textContent = "Ça sonne…"; $("outHint").textContent = "";
+    if (join){
+      $("outStatus").textContent = "Connexion…";
+      $("outHint").textContent = "Tu rejoins l'appel " + ofWho(code) + ".";
+      await peerReady(20000);   // la page vient de s'ouvrir : le standardiste met parfois quelques secondes
+      if (attempt !== callId) return;
+    } else ringHint("");
     if (!peer || !peer.open){ endCall("La ligne avec le standardiste vient de se couper. Attends « En ligne », puis réessaie."); return; }
-    conn = peer.connect(PREFIX + code, { reliable: true });
-    wire(conn);
+    const c = conn = peer.connect(PREFIX + code, { reliable: true });
+    wire(c);
     send({ t: "appel" });
+    if (!join){
+      // Mission 13 : en même temps, on demande au relais de prévenir l'ami (utile si sa page est fermée)
+      const r = reach = { online: null, notif: null };
+      c.on("open", () => { if (reach === r){ r.online = true; showRing(); } });
+      relay("/notifier", { de: MY, vers: code, type: "appel" }).then(n => { if (reach === r){ r.notif = n; showRing(); } });
+    }
     // Personne ne décroche en 1 minute : on arrête
     ringTimer = setTimeout(() => { send({ t: "annule" }); endCall("Pas de réponse au bout d'1 minute."); }, 60000);
   }
@@ -519,6 +607,18 @@
   function incoming(c){
     const from = c.peer.startsWith(PREFIX) ? c.peer.slice(PREFIX.length) : "";
     if (!/^\d{6}$/.test(from)){ c.close(); return; }       // pas un numéro de notre appli : on ignore
+    // Mission 13 : c'est l'ami que j'appelle, qui a touché ma notification (sa page était fermée).
+    // Il « décroche » en venant me chercher : je passe tout seul en appel et je lui tends le tuyau de son.
+    if (state === "calling" && from === friend && callStream && !media && !(conn && conn.open)){
+      const old = conn; conn = c; wire(c);
+      if (old) old.close();
+      clearTimeout(ringTimer);
+      reach = null;
+      state = "live"; go(4);
+      send({ t: "decroche" });
+      plugMedia(peer.call(PREFIX + friend, callStream));
+      return;
+    }
     if (state !== "idle"){                                    // déjà en ligne : on répond « occupé »
       c.on("open", () => { c.send({ t: "occupe" }); setTimeout(() => c.close(), 1000); });
       return;
@@ -527,6 +627,7 @@
     friend = from;
     state = "ringing";
     callMessage("");
+    send({ t: "sonne" });   // mission 13 : dit à un ami qui rejoint trop tard que c'est un nouvel appel qui sonne
     go(3);
     // Sécurité : si l'appelant disparaît sans prévenir, on arrête de sonner
     ringTimer = setTimeout(() => endCall("Appel manqué " + ofWho(from) + "."), 65000);
@@ -536,6 +637,7 @@
   function onData(d){
     if (!d || typeof d.t !== "string") return;
     if (state === "calling" && d.t === "decroche"){ clearTimeout(ringTimer); state = "live"; go(4); }
+    else if (state === "calling" && d.t === "sonne" && joining) ringHint("L'appel était fini : tu rappelles " + who(friend) + ".");   // mission 13
     else if (state === "calling" && d.t === "refuse") endCall("Appel refusé par " + who(friend) + ".");
     else if (state === "calling" && d.t === "nomicro") endCall(Who(friend) + " a voulu décrocher, mais son micro ne marche pas.");
     else if (state === "calling" && d.t === "occupe") endCall(Who(friend) + " est déjà en ligne avec quelqu'un. Réessaie plus tard.");
@@ -562,6 +664,7 @@
     stopVoice();   // mission 7 : le micro s'éteint dès que l'appel se termine, quelle qu'en soit la raison
     const c = conn; conn = null;
     state = "idle";
+    reach = null; joining = false; $("joinBtn").hidden = true;   // mission 13
     if (c) setTimeout(() => c.close(), 500);   // petit délai pour que le dernier message parte bien
     go(1);
     callMessage(text || "", info);
@@ -569,11 +672,14 @@
 
   // Les boutons des écrans d'appel
   $("cancelBtn").addEventListener("click", () => { send({ t: "annule" }); endCall(""); });
-  $("refuseBtn").addEventListener("click", () => { send({ t: "refuse" }); endCall(""); });
-  // Décrocher : j'allume mon micro (l'appui sur le bouton sert de « clé » sur iPhone), puis je tends le tuyau de son
-  $("answerBtn").addEventListener("click", async () => {
+  $("refuseBtn").addEventListener("click", () => { closeCallNotif(); send({ t: "refuse" }); endCall(""); });
+  // Décrocher : j'allume mon micro (l'appui sur le bouton sert de « clé » sur iPhone), puis je tends le tuyau de son.
+  // Mission 13 : aussi appelé tout seul quand on touche la notification pendant que ça sonne dans la page.
+  $("answerBtn").addEventListener("click", () => answer());
+  async function answer(){
     if (state !== "ringing" || $("answerBtn").disabled) return;
     const attempt = callId;
+    closeCallNotif();
     $("answerBtn").disabled = true;
     stopMic();
     let s;
@@ -590,7 +696,7 @@
     callStream = s;
     send({ t: "decroche" }); state = "live"; go(4);
     plugMedia(peer.call(PREFIX + friend, s));
-  });
+  }
   $("hangBtn").addEventListener("click", () => { send({ t: "raccroche" }); endCall("Appel terminé.", true); });
 
   startPeer();
@@ -774,4 +880,21 @@
     if (r.ok) testMessage("Notification test envoyée à " + c.nom + ".", true);
     else testMessage(texts[r.erreur] || r.message || "L'envoi n'a pas marché.");
   });
+
+  // ---------- Mission 13 : on a touché la notification « Noa t'appelle » ----------
+  // Page déjà ouverte : le veilleur la remet devant et lui glisse un petit mot { t: "rejoindre", de }.
+  if ("serviceWorker" in navigator){
+    navigator.serviceWorker.addEventListener("message", e => {
+      const d = e.data || {};
+      if (d.t === "rejoindre") joinFromNotif(String(d.de));
+    });
+    navigator.serviceWorker.startMessages();
+  }
+  // Page fermée : le veilleur l'ouvre à l'adresse « …/telephone/?appel=482917 ».
+  // On efface « ?appel=… » de l'adresse tout de suite, pour qu'un rechargement ne relance pas l'appel.
+  const askedJoin = new URLSearchParams(location.search).get("appel");
+  if (askedJoin !== null){
+    history.replaceState(null, "", location.pathname);
+    joinFromNotif(askedJoin);
+  }
 })();
