@@ -96,3 +96,38 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
 .pair > div{display:flex;flex-direction:column;align-items:center;gap:10px}
 .bottom{display:flex;flex-direction:column;align-items:center;gap:10px;flex:none;padding-bottom:4px}
 @media (prefers-reduced-motion:reduce){.rings::before,.rings::after{animation:none}}
+
+/* --- Mission 9 : répertoire --- */
+.head{width:100%}
+.chip{margin-left:auto;min-height:40px;padding:0 14px;border-radius:12px;background:var(--surface);border:1px solid var(--line);color:var(--fg);font-size:13px;font-weight:700;letter-spacing:.02em;text-transform:none;display:flex;align-items:center;gap:6px}
+.bar{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;flex:none}
+.bar-gap{width:96px}
+.book{list-style:none;margin:0;padding:0;width:100%;flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:10px}
+.card{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:10px 10px 10px 12px}
+.card .avatar{width:44px;height:44px;font-size:20px;flex:none}
+.who{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.who b{font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who .num{color:var(--muted);font-size:13px}
+.who .mail{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sq{flex:none;width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--surface-2);color:var(--fg)}
+.sq svg{width:22px;height:22px}
+.sq.go{background:var(--go);color:#fff}
+.empty{color:var(--muted);text-align:center;line-height:1.5;padding:24px 8px}
+/* La fiche d'un contact */
+#s6{overflow-y:auto}
+.form{width:100%;display:flex;flex-direction:column;gap:14px}
+.field{display:flex;flex-direction:column;gap:6px;font-weight:600;color:var(--muted);font-size:13px}
+.field .opt{font-weight:400}
+.field input{font:inherit;font-size:17px;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:14px;min-height:52px;padding:0 16px;font-weight:600}
+.field input.num{font-family:var(--f-num)}
+.field input:focus{outline:none;border-color:var(--accent)}
+.field input::placeholder{color:var(--line)}
+.save{margin-top:4px}
+.plain{background:none;color:var(--stop);font-size:16px;height:52px}
+.confirm{background:var(--surface);border:1px solid rgba(229,72,77,.5);border-radius:16px;padding:14px;text-align:center}
+.confirm p{margin:0 0 12px;font-weight:700;font-size:16px}
+.confirm-row{display:flex;gap:10px;justify-content:center}
+.danger{background:var(--stop);border-color:var(--stop);color:#fff}
+/* Un nom à la place du numéro sur les écrans d'appel : police normale, coupé proprement s'il est long */
+.big-num.name{font-family:var(--f-ui);font-weight:700;letter-spacing:0;font-size:clamp(30px,6vh,44px);max-width:100%;overflow-wrap:anywhere}
+.big-num.small.name{font-size:clamp(24px,4.4vh,32px)}

@@ -15,7 +15,13 @@
 <div class="app">
   <!-- Écran 1 : Accueil -->
   <section class="screen" id="s1">
-    <div class="label head">Mon numéro <span class="net" id="net">Connexion…</span></div>
+    <div class="label head">Mon numéro <span class="net" id="net">Connexion…</span>
+      <!-- Mission 9 : ouvrir le répertoire -->
+      <button class="chip" id="contactsBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+        Contacts
+      </button>
+    </div>
     <div class="mine">
       <span class="num" id="myCode">482 917</span>
       <button class="copy" id="copyBtn" aria-label="Copier mon numéro">
@@ -111,6 +117,48 @@
         <span class="cap">Raccrocher</span>
       </div>
     </div>
+  </section>
+
+  <!-- Écran 5 : Répertoire (mission 9) -->
+  <section class="screen" id="s5" hidden>
+    <div class="bar">
+      <button class="mic-btn" id="backBtn">← Retour</button>
+      <div class="label">Contacts</div>
+      <button class="mic-btn" id="addBtn">+ Ajouter</button>
+    </div>
+    <p class="mic-msg info" id="bookMsg" role="status" hidden></p>
+    <ul class="book" id="book"></ul>
+  </section>
+
+  <!-- Écran 6 : Fiche d'un contact, pour l'ajouter ou le modifier (mission 9) -->
+  <section class="screen" id="s6" hidden>
+    <div class="bar">
+      <button class="mic-btn" id="formBack">← Retour</button>
+      <div class="label" id="formTitle">Nouveau contact</div>
+      <span class="bar-gap"></span>
+    </div>
+    <form class="form" id="contactForm" novalidate>
+      <label class="field">Nom
+        <input id="fName" maxlength="30" autocomplete="off" placeholder="ex. Noa">
+      </label>
+      <label class="field">Code (6 chiffres)
+        <input id="fCode" class="num" inputmode="numeric" maxlength="9" autocomplete="off" placeholder="ex. 482 917">
+      </label>
+      <label class="field"><span>Mail <span class="opt">(facultatif)</span></span>
+        <input id="fMail" type="email" inputmode="email" autocomplete="off" placeholder="ex. noa@mail.fr">
+      </label>
+      <p class="mic-msg" id="formMsg" role="status" hidden></p>
+      <button class="wide go save" type="submit">Enregistrer</button>
+      <button class="wide plain" type="button" id="delBtn" hidden>Supprimer ce contact</button>
+      <!-- La question « Supprimer Noa ? » avant d'effacer pour de bon -->
+      <div class="confirm" id="confirmBox" hidden>
+        <p id="confirmText">Supprimer ce contact ?</p>
+        <div class="confirm-row">
+          <button class="mic-btn" type="button" id="noDel">Non</button>
+          <button class="mic-btn danger" type="button" id="yesDel">Oui, supprimer</button>
+        </div>
+      </div>
+    </form>
   </section>
 </div>
 

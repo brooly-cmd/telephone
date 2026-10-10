@@ -1,5 +1,5 @@
 // Le téléphone : écrans (mission 2), micro (mission 4), numéro perso (mission 5), appels (mission 6), voix (mission 7),
-// chrono et sourdine (mission 8).
+// chrono et sourdine (mission 8), répertoire (mission 9).
 (function(){
   let typed = "";                  // ce qu'on tape sur le clavier
   let friend = "";                 // le code de l'ami en ligne avec nous (appelé ou appelant)
@@ -28,11 +28,29 @@
     $("codeMsg").hidden = false;
   }
 
-  // Un rond coloré + une lettre, calculés à partir du code (toujours les mêmes pour un même ami)
+  // Mission 9 : le répertoire, rangé dans le navigateur (localStorage) sous le nom « repertoire ».
+  // C'est une liste de fiches { nom, code, mail } ; le mail est facultatif (il servira à la mission 11).
+  let book = [];
+  try { book = JSON.parse(localStorage.getItem("repertoire") || "[]"); } catch(e){ book = []; }
+  if (!Array.isArray(book)) book = [];
+  book = book.filter(c => c && typeof c.nom === "string" && /^[1-9]\d{5}$/.test(c.code));
+  function saveBook(){
+    try { localStorage.setItem("repertoire", JSON.stringify(book)); return true; } catch(e){ return false; }
+  }
+  const contactOf = code => book.find(c => c.code === code);
+  const nameOf = code => { const c = contactOf(code); return c ? c.nom : ""; };
+  // Pour les phrases : « Noa » si on le connaît, sinon « le 482 917 »
+  const Who = code => nameOf(code) || "Le " + fmt(code);
+  const who = code => nameOf(code) || "le " + fmt(code);
+  const ofWho = code => { const n = nameOf(code); return n ? (/^[aeiouyàâéèêîôh]/i.test(n) ? "d'" : "de ") + n : "du " + fmt(code); };
+
+  // Un rond coloré + une lettre, calculés à partir du code (toujours les mêmes pour un même ami).
+  // Mission 9 : si l'ami est dans le répertoire, la lettre est l'initiale de son nom.
   function paintAvatar(el, code){
     let n = 0; for (const ch of code) n = (n*31 + +ch) % 99991;
     el.style.background = "hsl(" + (n % 360) + " 65% 68%)";
-    el.textContent = String.fromCharCode(65 + n % 26);
+    const first = nameOf(code).trim().charAt(0).toUpperCase();
+    el.textContent = first || String.fromCharCode(65 + n % 26);
   }
 
   // Clavier : 1 à 9, une case vide, 0, et la touche effacer
@@ -155,10 +173,12 @@
   }
   $("micBtn").addEventListener("click", () => micStream ? stopMic() : startMic());
 
-  // Passer d'un écran à l'autre (1 Accueil, 2 Ça sonne, 3 Entrant, 4 En cours)
+  // Passer d'un écran à l'autre (1 Accueil, 2 Ça sonne, 3 Entrant, 4 En cours, 5 Répertoire, 6 Fiche contact)
   function go(n){
-    for (let i=1;i<=4;i++) $("s"+i).hidden = i !== n;
-    ["outCode","inCode","liveCode"].forEach(id => $(id).textContent = fmt(friend));
+    for (let i=1;i<=6;i++) $("s"+i).hidden = i !== n;
+    // Mission 9 : le nom de l'ami s'il est dans le répertoire, sinon son numéro
+    const name = nameOf(friend);
+    ["outCode","inCode","liveCode"].forEach(id => { $(id).textContent = name || fmt(friend); $(id).classList.toggle("name", !!name); });
     ["outAvatar","inAvatar","liveAvatar"].forEach(id => paintAvatar($(id), friend));
     if (n !== 4) stopChrono();
     else if (!startAt){ $("timer").textContent = "00:00"; $("timer").classList.add("wait"); }
@@ -179,6 +199,103 @@
   }
   function stopChrono(){ clearInterval(tick); tick = null; startAt = 0; }
   go(1);
+
+  // ---------- Mission 9 : l'écran Répertoire et la fiche d'un contact ----------
+  let editing = null;   // le contact qu'on modifie (null = on en ajoute un nouveau)
+  function bookMessage(text){ $("bookMsg").textContent = text; $("bookMsg").hidden = !text; }
+  function formMessage(text){ $("formMsg").textContent = text; $("formMsg").hidden = !text; }
+  // Un petit bouton rond avec un dessin dedans
+  function iconBtn(cls, label, svg, onClick){
+    const b = document.createElement("button");
+    b.className = "sq" + (cls ? " " + cls : "");
+    b.setAttribute("aria-label", label);
+    b.innerHTML = svg;
+    b.addEventListener("click", onClick);
+    return b;
+  }
+  // Dessine la liste (par ordre alphabétique). textContent (et pas innerHTML) : un nom bizarre reste du simple texte.
+  function renderBook(){
+    const ul = $("book");
+    ul.innerHTML = "";
+    if (!book.length){
+      const li = document.createElement("li");
+      li.className = "empty";
+      li.textContent = "Aucun contact pour l'instant. Appuie sur « + Ajouter » pour enregistrer le code d'un ami.";
+      ul.appendChild(li);
+      return;
+    }
+    [...book].sort((a,b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" })).forEach(c => {
+      const li = document.createElement("li");
+      li.className = "card";
+      const av = document.createElement("div"); av.className = "avatar"; paintAvatar(av, c.code);
+      const info = document.createElement("div"); info.className = "who";
+      const nm = document.createElement("b"); nm.textContent = c.nom;
+      const cd = document.createElement("span"); cd.className = "num"; cd.textContent = fmt(c.code);
+      info.append(nm, cd);
+      if (c.mail){ const ml = document.createElement("span"); ml.className = "mail"; ml.textContent = c.mail; info.appendChild(ml); }
+      const edit = iconBtn("", "Modifier " + c.nom,
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/></svg>',
+        () => openForm(c));
+      const call = iconBtn("go", "Appeler " + c.nom, '<svg viewBox="0 0 24 24" fill="currentColor"><use href="#ph"/></svg>',
+        () => { go(1); startCall(c.code); });   // même chemin qu'en tapant le code : les messages s'affichent sur l'accueil
+      li.append(av, info, edit, call);
+      ul.appendChild(li);
+    });
+  }
+  function openBook(){ bookMessage(""); renderBook(); go(5); }
+  // Ouvre la fiche : vide pour un nouveau contact, remplie pour en modifier un
+  function openForm(c){
+    editing = c || null;
+    $("formTitle").textContent = c ? "Modifier le contact" : "Nouveau contact";
+    $("fName").value = c ? c.nom : "";
+    $("fCode").value = c ? fmt(c.code) : "";
+    $("fMail").value = c ? (c.mail || "") : "";
+    $("delBtn").hidden = !c;
+    $("confirmBox").hidden = true;
+    formMessage("");
+    go(6);
+    $("fName").focus();
+  }
+  $("contactsBtn").addEventListener("click", openBook);
+  $("backBtn").addEventListener("click", () => go(1));
+  $("addBtn").addEventListener("click", () => openForm(null));
+  $("formBack").addEventListener("click", openBook);
+  // Enregistrer : on vérifie chaque case, et on explique ce qui ne va pas
+  $("contactForm").addEventListener("submit", e => {
+    e.preventDefault();
+    const nom = $("fName").value.trim().replace(/\s+/g, " ");
+    const code = $("fCode").value.replace(/\D/g, "");   // « 482 917 » devient 482917
+    const mail = $("fMail").value.trim();
+    if (!nom) return formMessage("Écris un nom pour ce contact.");
+    if (code.length !== 6) return formMessage("Le code doit avoir 6 chiffres (j'en ai trouvé " + code.length + ").");
+    if (code[0] === "0") return formMessage("Un code ne commence jamais par 0. Vérifie le numéro de ton ami.");
+    if (code === MY) return formMessage("C'est ton propre numéro ! Mets le code d'un ami.");
+    const twin = book.find(c => c.code === code && c !== editing);
+    if (twin) return formMessage("Ce code est déjà enregistré pour " + twin.nom + ".");
+    if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) return formMessage("Ce mail n'a pas l'air complet (exemple : noa@mail.fr). Tu peux aussi laisser la case vide.");
+    const before = book;
+    book = book.filter(c => c !== editing).concat({ nom, code, mail });
+    if (!saveBook()){
+      book = before;
+      return formMessage("Ce navigateur ne peut pas garder ton répertoire (navigation privée ?). Le contact n'est pas enregistré.");
+    }
+    openBook();
+    bookMessage((editing ? "Contact modifié : " : "Contact ajouté : ") + nom + ".");
+  });
+  // Supprimer : on demande d'abord « Supprimer Noa ? »
+  $("delBtn").addEventListener("click", () => {
+    $("confirmText").textContent = "Supprimer " + editing.nom + " ?";
+    $("delBtn").hidden = true;
+    $("confirmBox").hidden = false;
+  });
+  $("noDel").addEventListener("click", () => { $("confirmBox").hidden = true; $("delBtn").hidden = false; });
+  $("yesDel").addEventListener("click", () => {
+    const gone = editing;
+    book = book.filter(c => c !== gone);
+    saveBook();
+    openBook();
+    bookMessage("Contact supprimé : " + gone.nom + ".");
+  });
 
   // ---------- Mission 6 : appeler un code grâce au standardiste PeerJS ----------
   // Le standardiste public est partagé avec le monde entier : on s'inscrit sous « brooly-tel-482917 »
@@ -237,7 +354,7 @@
   function onPeerError(p, e){
     if (p !== peer) return;
     if (e.type === "peer-unavailable"){   // l'ami n'a pas la page ouverte
-      if (state === "calling") endCall("Le " + fmt(friend) + " n'est pas connecté pour le moment (sa page est fermée).");
+      if (state === "calling") endCall(Who(friend) + " n'est pas connecté pour le moment (sa page est fermée).");
       return;
     }
     setNet("off");
@@ -410,28 +527,28 @@
     callMessage("");
     go(3);
     // Sécurité : si l'appelant disparaît sans prévenir, on arrête de sonner
-    ringTimer = setTimeout(() => endCall("Appel manqué du " + fmt(from) + "."), 65000);
+    ringTimer = setTimeout(() => endCall("Appel manqué " + ofWho(from) + "."), 65000);
   }
 
   // Les petits messages échangés entre les deux pages
   function onData(d){
     if (!d || typeof d.t !== "string") return;
     if (state === "calling" && d.t === "decroche"){ clearTimeout(ringTimer); state = "live"; go(4); }
-    else if (state === "calling" && d.t === "refuse") endCall("Appel refusé par le " + fmt(friend) + ".");
-    else if (state === "calling" && d.t === "nomicro") endCall("Le " + fmt(friend) + " a voulu décrocher, mais son micro ne marche pas.");
-    else if (state === "calling" && d.t === "occupe") endCall("Le " + fmt(friend) + " est déjà en ligne avec quelqu'un. Réessaie plus tard.");
-    else if (state === "ringing" && d.t === "annule") endCall("Appel manqué du " + fmt(friend) + ".");
+    else if (state === "calling" && d.t === "refuse") endCall("Appel refusé par " + who(friend) + ".");
+    else if (state === "calling" && d.t === "nomicro") endCall(Who(friend) + " a voulu décrocher, mais son micro ne marche pas.");
+    else if (state === "calling" && d.t === "occupe") endCall(Who(friend) + " est déjà en ligne avec quelqu'un. Réessaie plus tard.");
+    else if (state === "ringing" && d.t === "annule") endCall("Appel manqué " + ofWho(friend) + ".");
     else if (state === "live" && d.t === "raccroche") endCall("Appel terminé.", true);
     else if (state === "live" && d.t === "chrono") startChrono();   // mission 8 : le « top ! » de l'ami
     else if (state === "live" && d.t === "micro"){                   // mission 8 : l'ami a coupé / rallumé son micro
-      $("peerMute").textContent = "Le " + fmt(friend) + " a coupé son micro.";
+      $("peerMute").textContent = Who(friend) + " a coupé son micro.";
       $("peerMute").hidden = !d.coupe;
     }
   }
   // Le fil avec l'ami s'est coupé sans message
   function lineCut(){
     if (state === "calling") endCall("La communication a été coupée.");
-    else if (state === "ringing") endCall("Appel manqué du " + fmt(friend) + ".");
+    else if (state === "ringing") endCall("Appel manqué " + ofWho(friend) + ".");
     else if (state === "live") endCall("L'appel a été coupé.");
   }
   // Fin de l'appel, quelle qu'en soit la raison : retour à l'accueil avec un message
