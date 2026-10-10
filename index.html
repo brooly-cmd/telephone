@@ -53,6 +53,7 @@
     <div class="center">
       <div class="rings"><div class="avatar" id="outAvatar"></div></div>
       <div class="status" id="outStatus">Ça sonne…</div>
+      <div class="cap" id="outHint"></div>
       <div class="big-num num" id="outCode">731 205</div>
     </div>
     <div class="bottom">
@@ -88,8 +89,13 @@
       <div class="big-num num small" id="liveCode">731 205</div>
       <div class="label">En appel</div>
       <div class="timer num" id="timer">00:00</div>
-      <div class="cap">Le son arrivera à la mission 7</div>
+      <!-- Mission 7 : où en est le son (connexion, connecté) -->
+      <div class="cap" id="soundState">Connexion du son…</div>
+      <!-- Si le téléphone bloque le son, un appui sur ce bouton l'allume -->
+      <button class="mic-btn" id="soundBtn" hidden>Toucher pour entendre</button>
     </div>
+    <!-- Le haut-parleur caché qui joue la voix de l'ami -->
+    <audio id="voice" autoplay playsinline></audio>
     <div class="bottom">
       <button class="big stop" id="hangBtn" aria-label="Raccrocher"><svg viewBox="0 0 24 24" fill="#fff"><use href="#ph"/></svg></button>
       <span class="cap">Raccrocher</span>

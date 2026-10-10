@@ -1,4 +1,4 @@
-// Le téléphone : écrans (mission 2), micro (mission 4), numéro perso (mission 5), appels (mission 6).
+// Le téléphone : écrans (mission 2), micro (mission 4), numéro perso (mission 5), appels (mission 6), voix (mission 7).
 (function(){
   let typed = "";                  // ce qu'on tape sur le clavier
   let friend = "";                 // le code de l'ami en ligne avec nous (appelé ou appelant)
@@ -105,6 +105,17 @@
     $("meter").hidden = !on;
     $("meterFill").style.width = "0";
   }
+  // Pourquoi le micro ne s'ouvre pas, en mots simples (servira aussi pour les appels, mission 7)
+  function micError(e){
+    const why = {
+      NoMicHere:        "Ce navigateur ne peut pas utiliser le micro ici. Ouvre la page avec son adresse en https.",
+      NotAllowedError:  "Micro refusé. Pour l'autoriser : clique sur le cadenas à gauche de l'adresse, mets « Micro » sur Autoriser, puis recharge la page.",
+      SecurityError:    "Micro refusé. Pour l'autoriser : clique sur le cadenas à gauche de l'adresse, mets « Micro » sur Autoriser, puis recharge la page.",
+      NotFoundError:    "Aucun micro trouvé. Branche un micro ou un casque, puis réessaie.",
+      NotReadableError: "Le micro est déjà utilisé par une autre application (Zoom, Discord…). Ferme-la, puis réessaie."
+    };
+    return why[e && e.name] || "Impossible d'ouvrir le micro (" + (e && e.name) + "). Réessaie.";
+  }
   function stopMic(){
     cancelAnimationFrame(micLoop);
     if (micStream) micStream.getTracks().forEach(t => t.stop());   // éteint le micro (le voyant du navigateur disparaît)
@@ -124,13 +135,7 @@
       micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch(e){
       audioCtx.close(); audioCtx = null;
-      const why = {
-        NotAllowedError:  "Micro refusé. Pour l'autoriser : clique sur le cadenas à gauche de l'adresse, mets « Micro » sur Autoriser, puis recharge la page.",
-        SecurityError:    "Micro refusé. Pour l'autoriser : clique sur le cadenas à gauche de l'adresse, mets « Micro » sur Autoriser, puis recharge la page.",
-        NotFoundError:    "Aucun micro trouvé. Branche un micro ou un casque, puis réessaie.",
-        NotReadableError: "Le micro est déjà utilisé par une autre application (Zoom, Discord…). Ferme-la, puis réessaie."
-      };
-      micMessage(why[e.name] || "Impossible d'ouvrir le micro (" + e.name + "). Réessaie.");
+      micMessage(micError(e));
       return;
     }
     await audioCtx.resume();
@@ -202,6 +207,7 @@
       if (state === "idle") callMessage("");
     });
     p.on("connection", c => { if (p === peer) incoming(c); });
+    p.on("call", mc => { if (p === peer) incomingMedia(mc); else mc.close(); });
     p.on("disconnected", () => { if (p === peer && !p.destroyed){ setNet("wait"); retryLater(); } });
     p.on("error", e => onPeerError(p, e));
     // Si le standardiste ne répond rien du tout au bout de 10 secondes, on le dit
@@ -248,6 +254,7 @@
     if (state === "calling") send({ t: "annule" });
     else if (state === "ringing") send({ t: "refuse" });
     else if (state === "live") send({ t: "raccroche" });
+    stopVoice();
     if (peer) peer.destroy();
   });
 
@@ -264,15 +271,79 @@
     c.on("error", () => { if (c === conn) lineCut(); });
   }
 
+  // ---------- Mission 7 : la voix dans les deux sens ----------
+  // Celui qui décroche « tend un tuyau de son » (WebRTC) à l'appelant, qui répond avec le sien.
+  let callStream = null;   // mon micro pendant un appel
+  let media = null;        // le tuyau de son avec l'ami
+  let callId = 0;          // change à chaque fin d'appel : sert à ignorer une réponse du micro arrivée trop tard
+  // Le navigateur nettoie la voix : il enlève l'écho du haut-parleur, le souffle, et règle le volume tout seul
+  const VOICE = { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } };
+  function openCallMic(){
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return Promise.reject({ name: "NoMicHere" });
+    return navigator.mediaDevices.getUserMedia(VOICE);
+  }
+  function soundState(text){ $("soundState").textContent = text; }
+  // Brancher le tuyau de son : quand la voix de l'ami arrive, on la joue dans le haut-parleur caché
+  function plugMedia(mc){
+    media = mc;
+    soundState("Connexion du son…");
+    mc.on("stream", remote => {
+      if (mc !== media) return;
+      if ($("voice").srcObject !== remote) $("voice").srcObject = remote;
+      playVoice();
+    });
+    mc.on("close", () => { if (mc === media && state === "live") endCall("L'appel a été coupé."); });
+    mc.on("error", () => { if (mc === media && state === "live") endCall("Le son n'a pas pu passer. Réessaie."); });
+  }
+  // Certains téléphones bloquent le son tant qu'on n'a pas touché l'écran : on affiche alors un bouton
+  function playVoice(){
+    $("voice").play().then(() => {
+      if (!media) return;
+      soundState("Son connecté"); $("soundBtn").hidden = true;
+    }).catch(() => {
+      if (!media) return;
+      soundState("Le téléphone bloque le son :"); $("soundBtn").hidden = false;
+    });
+  }
+  $("soundBtn").addEventListener("click", playVoice);
+  // Fin du son : on ÉTEINT le micro tout de suite (le voyant du navigateur disparaît) et on coupe le haut-parleur
+  function stopVoice(){
+    if (callStream){ callStream.getTracks().forEach(t => t.stop()); callStream = null; }
+    const m = media; media = null;
+    if (m) setTimeout(() => m.close(), 500);   // petit délai : laisse d'abord partir le message « raccroche »
+    $("voice").pause(); $("voice").srcObject = null;
+    $("soundBtn").hidden = true;
+    soundState("Connexion du son…");
+  }
+  // L'ami vient de décrocher et me tend son tuyau de son : je réponds avec mon micro
+  function incomingMedia(mc){
+    const ok = mc.peer === PREFIX + friend && callStream && !media && (state === "calling" || state === "live");
+    if (!ok){ mc.close(); return; }
+    mc.answer(callStream);
+    plugMedia(mc);
+  }
+
   // J'appelle un code
-  function startCall(code){
+  async function startCall(code){
     if (state !== "idle" || !/^\d{6}$/.test(code)) return;
     if (code === MY){ callMessage("C'est ton propre numéro ! Tape le code d'un ami."); return; }
     if (!peer || !peer.open){ callMessage("Pas encore connecté au standardiste. Attends que « En ligne » s'affiche en haut, puis réessaie."); return; }
     callMessage("");
     friend = code; typed = ""; renderDisplay();
+    stopMic();             // si le test du micro tournait, on l'arrête
     state = "calling";
     go(2);
+    // Mission 7 : j'allume mon micro avant de faire sonner l'ami, pour que la voix passe dès qu'il décroche
+    const attempt = callId;
+    $("outStatus").textContent = "Micro…";
+    $("outHint").textContent = "Autorise le micro pour que ton ami t'entende.";
+    let s;
+    try { s = await openCallMic(); }
+    catch(e){ if (attempt === callId) endCall(micError(e)); return; }
+    if (attempt !== callId){ s.getTracks().forEach(t => t.stop()); return; }   // appel annulé pendant la question du micro
+    callStream = s;
+    $("outStatus").textContent = "Ça sonne…"; $("outHint").textContent = "";
+    if (!peer || !peer.open){ endCall("La ligne avec le standardiste vient de se couper. Attends « En ligne », puis réessaie."); return; }
     conn = peer.connect(PREFIX + code, { reliable: true });
     wire(conn);
     send({ t: "appel" });
@@ -302,6 +373,7 @@
     if (!d || typeof d.t !== "string") return;
     if (state === "calling" && d.t === "decroche"){ clearTimeout(ringTimer); state = "live"; go(4); }
     else if (state === "calling" && d.t === "refuse") endCall("Appel refusé par le " + fmt(friend) + ".");
+    else if (state === "calling" && d.t === "nomicro") endCall("Le " + fmt(friend) + " a voulu décrocher, mais son micro ne marche pas.");
     else if (state === "calling" && d.t === "occupe") endCall("Le " + fmt(friend) + " est déjà en ligne avec quelqu'un. Réessaie plus tard.");
     else if (state === "ringing" && d.t === "annule") endCall("Appel manqué du " + fmt(friend) + ".");
     else if (state === "live" && d.t === "raccroche") endCall("Appel terminé.", true);
@@ -315,6 +387,8 @@
   // Fin de l'appel, quelle qu'en soit la raison : retour à l'accueil avec un message
   function endCall(text, info){
     clearTimeout(ringTimer);
+    callId++;
+    stopVoice();   // mission 7 : le micro s'éteint dès que l'appel se termine, quelle qu'en soit la raison
     const c = conn; conn = null;
     state = "idle";
     if (c) setTimeout(() => c.close(), 500);   // petit délai pour que le dernier message parte bien
@@ -325,9 +399,26 @@
   // Les boutons des écrans d'appel
   $("cancelBtn").addEventListener("click", () => { send({ t: "annule" }); endCall(""); });
   $("refuseBtn").addEventListener("click", () => { send({ t: "refuse" }); endCall(""); });
-  $("answerBtn").addEventListener("click", () => {
-    if (state !== "ringing") return;
-    clearTimeout(ringTimer); send({ t: "decroche" }); state = "live"; go(4);
+  // Décrocher : j'allume mon micro (l'appui sur le bouton sert de « clé » sur iPhone), puis je tends le tuyau de son
+  $("answerBtn").addEventListener("click", async () => {
+    if (state !== "ringing" || $("answerBtn").disabled) return;
+    const attempt = callId;
+    $("answerBtn").disabled = true;
+    stopMic();
+    let s;
+    try { s = await openCallMic(); }
+    catch(e){
+      $("answerBtn").disabled = false;
+      if (attempt === callId){ send({ t: "nomicro" }); endCall(micError(e)); }
+      return;
+    }
+    $("answerBtn").disabled = false;
+    if (attempt !== callId){ s.getTracks().forEach(t => t.stop()); return; }   // l'appelant a abandonné pendant la question du micro
+    if (!peer || !peer.open){ s.getTracks().forEach(t => t.stop()); send({ t: "nomicro" }); endCall("La ligne avec le standardiste est coupée. Réessaie dans un instant."); return; }
+    clearTimeout(ringTimer);
+    callStream = s;
+    send({ t: "decroche" }); state = "live"; go(4);
+    plugMedia(peer.call(PREFIX + friend, s));
   });
   $("hangBtn").addEventListener("click", () => { send({ t: "raccroche" }); endCall("Appel terminé.", true); });
 
