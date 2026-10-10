@@ -1,11 +1,31 @@
 // Mission 2 : les boutons font seulement passer d'un écran à l'autre (pas encore de vrai appel).
 (function(){
-  const MY = "482917";             // numéro d'exemple : le vrai code arrivera à la mission 5
   let typed = "";                  // ce qu'on tape sur le clavier
   let friend = "731205";           // code d'exemple pour les écrans d'appel
   let tick = null, seconds = 0;    // pour le chrono
   const $ = id => document.getElementById(id);
   const fmt = c => c.slice(0,3) + " " + c.slice(3);   // "731205" -> "731 205"
+
+  // Mission 5 : mon numéro perso. Tiré au hasard la 1re fois, puis rangé dans le navigateur (localStorage)
+  // pour rester le même à chaque visite. 6 chiffres, jamais de 0 au début.
+  function newCode(){
+    const r = crypto.getRandomValues(new Uint32Array(1))[0];
+    return String(100000 + r % 900000);
+  }
+  let saved = true;
+  function loadMyCode(){
+    try {
+      let c = localStorage.getItem("monCode");
+      if (!/^[1-9]\d{5}$/.test(c || "")){ c = newCode(); localStorage.setItem("monCode", c); }
+      return c;
+    } catch(e){ saved = false; return newCode(); }   // tiroir fermé (navigation privée…) : numéro valable pour cette visite seulement
+  }
+  const MY = loadMyCode();
+  $("myCode").textContent = fmt(MY);
+  if (!saved){
+    $("codeMsg").textContent = "Ce navigateur ne peut pas garder ton numéro (navigation privée ?). Il changera à ta prochaine visite.";
+    $("codeMsg").hidden = false;
+  }
 
   // Un rond coloré + une lettre, calculés à partir du code (toujours les mêmes pour un même ami)
   function paintAvatar(el, code){
@@ -46,7 +66,7 @@
   // Copier mon numéro
   $("copyBtn").addEventListener("click", async () => {
     const btn = $("copyBtn"), txt = btn.querySelector("span");
-    try { await navigator.clipboard.writeText(MY); txt.textContent = "Copié ✓"; btn.classList.add("ok"); }
+    try { await navigator.clipboard.writeText(fmt(MY)); txt.textContent = "Copié ✓"; btn.classList.add("ok"); }
     catch(e){ const r = document.createRange(); r.selectNodeContents($("myCode")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); txt.textContent = "Sélectionné"; }
     setTimeout(() => { txt.textContent = "Copier"; btn.classList.remove("ok"); }, 1600);
   });
