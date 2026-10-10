@@ -1,6 +1,6 @@
 // Le téléphone : écrans (mission 2), micro (mission 4), numéro perso (mission 5), appels (mission 6), voix (mission 7),
 // chrono et sourdine (mission 8), répertoire (mission 9), page installable (mission 10), notifications (mission 12),
-// prévenir l'ami par notification et rejoindre l'appel en la touchant (mission 13).
+// prévenir l'ami par notification et rejoindre l'appel en la touchant (mission 13), sonneries (mission 14).
 (function(){
   let typed = "";                  // ce qu'on tape sur le clavier
   let friend = "";                 // le code de l'ami en ligne avec nous (appelé ou appelant)
@@ -139,6 +139,7 @@
     $("micBtn").setAttribute("aria-pressed", on);
     $("micBtn").querySelector("span").textContent = on ? "Arrêter le test" : "Tester le micro";
     $("meter").hidden = !on;
+    $("ringBtn").hidden = on;   // mission 14 : on laisse la place à la barre pendant le test
     $("meterFill").style.width = "0";
   }
   // Pourquoi le micro ne s'ouvre pas, en mots simples (servira aussi pour les appels, mission 7)
@@ -199,6 +200,7 @@
     ["outAvatar","inAvatar","liveAvatar"].forEach(id => paintAvatar($(id), friend));
     if (n !== 4) stopChrono();
     else if (!startAt){ $("timer").textContent = "00:00"; $("timer").classList.add("wait"); }
+    sounds();   // mission 14 : chaque écran a son son (ou son silence)
   }
 
   // Mission 8 : le chrono. Il démarre quand le son est connecté (pas avant), et on lit l'horloge
@@ -215,7 +217,6 @@
     tick = setInterval(() => { $("timer").textContent = clock(); }, 250);
   }
   function stopChrono(){ clearInterval(tick); tick = null; startAt = 0; }
-  go(1);
 
   // ---------- Mission 9 : l'écran Répertoire et la fiche d'un contact ----------
   let editing = null;   // le contact qu'on modifie (null = on en ajoute un nouveau)
@@ -399,6 +400,7 @@
     if (state === "calling") send({ t: "annule" });
     else if (state === "ringing") send({ t: "refuse" });
     else if (state === "live") send({ t: "raccroche" });
+    playSound("");
     stopVoice();
     if (peer) peer.destroy();
   });
@@ -556,6 +558,109 @@
     });
   }
 
+  // ---------- Mission 14 : les sonneries, fabriquées par le navigateur (Web Audio), sans fichier son ----------
+  // Web Audio = un petit synthétiseur caché dans le navigateur : on lui dit « joue un la pendant 1,5 s » et il le fabrique.
+  // Règle des navigateurs (surtout l'iPhone) : la page doit avoir été touchée une fois avant de pouvoir faire du bruit.
+  let snd = null;        // le synthétiseur (il reste allumé tant que la page est ouverte)
+  let sndKind = "";      // ce qu'il joue : "ring" (carillon, appel entrant), "back" (« tuuut », ça sonne chez l'ami), "test", ""
+  let sndNotes = [];     // les notes déjà prévues, pour pouvoir toutes les faire taire d'un coup
+  let sndOut = null;     // le « bouton de volume » de ce qui joue en ce moment
+  let recall = false;    // mission 13 : je rejoignais un appel fini, c'est devenu un nouvel appel qui sonne chez l'ami
+  let tipTimer = null;
+  function synth(){
+    if (!snd){
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      try { snd = new AC(); } catch(e){ return null; }
+      snd.onstatechange = showRingHelp;   // bloqué / débloqué : on met le bandeau à jour
+    }
+    return snd;
+  }
+  // Une note. bell = true : note de carillon (frappée puis qui s'éteint doucement) ; sinon une tonalité qui tient.
+  function note(out, t, freq, dur, vol, bell){
+    const o = snd.createOscillator(), g = snd.createGain();
+    o.frequency.value = freq;
+    o.connect(g); g.connect(out);
+    g.gain.setValueAtTime(0, t);
+    if (bell){
+      g.gain.linearRampToValueAtTime(vol, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    } else {                                           // montée et descente de 30 ms : pas de « clic » dans le haut-parleur
+      g.gain.linearRampToValueAtTime(vol, t + 0.03);
+      g.gain.setValueAtTime(vol, t + dur - 0.03);
+      g.gain.linearRampToValueAtTime(0, t + dur);
+    }
+    o.start(t); o.stop(t + dur + 0.05);
+    sndNotes.push(o);
+  }
+  // Le carillon : do-mi-sol, comme un petit xylophone (+ une note fantôme une octave plus haut pour le côté « cloche »)
+  function chime(out, t){
+    [523.25, 659.25, 783.99].forEach((f, i) => {
+      note(out, t + i * 0.16, f, 1.1, 0.35, true);
+      note(out, t + i * 0.16, f * 2, 0.5, 0.08, true);
+    });
+  }
+  // Jouer un son (ou "" pour le silence). Toutes les notes de la minute sont prévues d'avance :
+  // ainsi ça sonne régulièrement même si la page est dans un onglet caché (où les minuteurs ralentissent).
+  function playSound(kind){
+    if (kind === sndKind) return;
+    sndNotes.forEach(o => { try { o.stop(); } catch(e){} });   // silence immédiat
+    sndNotes = [];
+    if (sndOut){ const old = sndOut; setTimeout(() => old.disconnect(), 100); sndOut = null; }
+    sndKind = kind;
+    if (!kind || !synth()) return;
+    if (snd.state !== "running") snd.resume().catch(() => {});   // (s'il est encore bloqué, il partira au 1er toucher)
+    sndOut = snd.createGain();
+    sndOut.gain.value = 0.5;
+    sndOut.connect(snd.destination);
+    const t0 = snd.currentTime + 0.05;
+    if (kind === "ring") for (let k = 0; k < 33; k++) chime(sndOut, t0 + k * 2);              // toutes les 2 s, 66 s maximum
+    if (kind === "back") for (let k = 0; k < 13; k++) note(sndOut, t0 + k * 5, 440, 1.5, 0.22); // France : 1,5 s de « la », 3,5 s de silence
+    if (kind === "test"){
+      chime(sndOut, t0); chime(sndOut, t0 + 2);
+      setTimeout(() => { if (sndKind === "test") playSound(""); }, 3500);
+    }
+  }
+  // Le chef d'orchestre : regarde où en est l'appel et choisit le son
+  function sounds(){
+    if (state === "ringing" && !$("answerBtn").disabled) playSound("ring");                  // appel entrant (pas encore décroché)
+    else if (state === "calling" && callStream && (!joining || recall)) playSound("back");    // ça sonne chez l'ami
+    else if (state !== "idle" || sndKind !== "test") playSound("");                          // tout le reste : silence
+  }
+  // Le bandeau « Touche l'écran pour activer la sonnerie » : visible tant que le navigateur bloque le son
+  function showRingHelp(){
+    if (tipTimer) return;   // un conseil après le test est affiché : on le laisse
+    const locked = !snd || snd.state !== "running";
+    const touch = navigator.maxTouchPoints > 0;
+    $("ringMsg").textContent = touch ? "Touche l'écran pour activer la sonnerie." : "Clique n'importe où dans la page pour activer la sonnerie.";
+    $("ringMsg").hidden = !locked || !synth();
+  }
+  // Le déblocage : au 1er toucher (ou clic, ou touche du clavier), on allume le synthétiseur
+  // et on lui fait jouer un tout petit silence : c'est ce que l'iPhone attend pour autoriser le son.
+  function unlockSound(){
+    if (!synth() || snd.state === "running") return;
+    snd.resume().then(showRingHelp, () => {});
+    try { const b = snd.createBufferSource(); b.buffer = snd.createBuffer(1, 1, 22050); b.connect(snd.destination); b.start(0); } catch(e){}
+  }
+  ["touchend", "pointerup", "click", "keydown"].forEach(ev => document.addEventListener(ev, unlockSound, true));
+  // Retour sur la page : le téléphone a pu remettre le synthétiseur en pause
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && snd && snd.state !== "running") snd.resume().then(showRingHelp, showRingHelp);
+  });
+  synth(); showRingHelp();   // à l'ouverture : on essaie (certains PC l'autorisent tout de suite), sinon le bandeau s'affiche
+  // « Tester la sonnerie » : 2 carillons, puis un conseil si on n'entend rien
+  $("ringBtn").addEventListener("click", () => {
+    if (state !== "idle") return;
+    unlockSound();
+    playSound(""); playSound("test");
+    clearTimeout(tipTimer);
+    $("ringMsg").textContent = ios
+      ? "Tu n'entends rien ? Vérifie le bouton silencieux sur le côté de l'iPhone (ou le mode Silence) et monte le volume."
+      : "Tu n'entends rien ? Monte le volume de l'appareil (et vérifie que le son de cet onglet n'est pas coupé).";
+    $("ringMsg").hidden = false;
+    tipTimer = setTimeout(() => { tipTimer = null; showRingHelp(); }, 8000);
+  });
+
   // J'appelle un code. join = true : je rejoins l'appel d'un ami qui m'a prévenu par notification (mission 13).
   async function startCall(code, join){
     if (state !== "idle" || !/^\d{6}$/.test(code)) return;
@@ -583,6 +688,7 @@
     }
     if (attempt !== callId){ s.getTracks().forEach(t => t.stop()); return; }   // appel annulé pendant la question du micro
     callStream = s;
+    sounds();   // mission 14 : micro accepté, ça sonne chez l'ami : « tuuut… » chez moi
     if (join){
       $("outStatus").textContent = "Connexion…";
       $("outHint").textContent = "Tu rejoins l'appel " + ofWho(code) + ".";
@@ -637,7 +743,10 @@
   function onData(d){
     if (!d || typeof d.t !== "string") return;
     if (state === "calling" && d.t === "decroche"){ clearTimeout(ringTimer); state = "live"; go(4); }
-    else if (state === "calling" && d.t === "sonne" && joining) ringHint("L'appel était fini : tu rappelles " + who(friend) + ".");   // mission 13
+    else if (state === "calling" && d.t === "sonne" && joining){   // mission 13
+      ringHint("L'appel était fini : tu rappelles " + who(friend) + ".");
+      recall = true; sounds();   // mission 14 : c'est un vrai appel qui sonne chez lui : « tuuut… »
+    }
     else if (state === "calling" && d.t === "refuse") endCall("Appel refusé par " + who(friend) + ".");
     else if (state === "calling" && d.t === "nomicro") endCall(Who(friend) + " a voulu décrocher, mais son micro ne marche pas.");
     else if (state === "calling" && d.t === "occupe") endCall(Who(friend) + " est déjà en ligne avec quelqu'un. Réessaie plus tard.");
@@ -664,7 +773,7 @@
     stopVoice();   // mission 7 : le micro s'éteint dès que l'appel se termine, quelle qu'en soit la raison
     const c = conn; conn = null;
     state = "idle";
-    reach = null; joining = false; $("joinBtn").hidden = true;   // mission 13
+    reach = null; joining = false; recall = false; $("joinBtn").hidden = true;   // mission 13 (+ 14)
     if (c) setTimeout(() => c.close(), 500);   // petit délai pour que le dernier message parte bien
     go(1);
     callMessage(text || "", info);
@@ -681,6 +790,7 @@
     const attempt = callId;
     closeCallNotif();
     $("answerBtn").disabled = true;
+    sounds();   // mission 14 : la sonnerie se tait dès le toucher, même pendant la question du micro
     stopMic();
     let s;
     try { s = await openCallMic(); }
@@ -699,6 +809,7 @@
   }
   $("hangBtn").addEventListener("click", () => { send({ t: "raccroche" }); endCall("Appel terminé.", true); });
 
+  go(1);
   startPeer();
 
   // Mission 10 : sur iPhone / iPad, tant que la page n'est pas installée, une aide courte pour l'ajouter à l'écran d'accueil.

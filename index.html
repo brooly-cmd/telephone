@@ -53,8 +53,15 @@
         <span>Tester le micro</span>
       </button>
       <div class="meter" id="meter" hidden><div class="meter-fill" id="meterFill"></div></div>
+      <!-- Mission 14 : écouter la sonnerie (ce toucher sert aussi à la débloquer) -->
+      <button class="mic-btn" id="ringBtn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg>
+        <span>Tester la sonnerie</span>
+      </button>
     </div>
     <p class="mic-msg" id="micMsg" role="status" hidden></p>
+    <!-- Mission 14 : « Touche l'écran pour activer la sonnerie » (iPhone, et parfois PC), ou un conseil après le test -->
+    <p class="mic-msg info" id="ringMsg" role="status" hidden></p>
     <!-- Mission 12 : activer les notifications (le bouton) et le voyant qui dit où on en est -->
     <div class="mic notif">
       <button class="mic-btn" id="notifBtn" hidden>
