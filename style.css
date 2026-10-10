@@ -85,6 +85,13 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
 .rings::after{animation-delay:1s}
 @keyframes wave{0%{transform:scale(1);opacity:.6}100%{transform:scale(1.7);opacity:0}}
 .timer{font-size:clamp(44px,9vh,68px);font-weight:400;color:var(--go)}
+.timer.wait{color:var(--line)}   /* chrono gris tant que le son n'est pas connecté */
+/* Bouton « Couper le micro » : gris quand le micro marche, clair avec micro barré rouge quand il est coupé */
+.mute{background:var(--surface);border:1px solid var(--line);color:var(--fg)}
+.mute .slash{display:none}
+.mute[aria-pressed="true"]{background:var(--fg);border-color:var(--stop);color:var(--stop)}
+.mute[aria-pressed="true"] .slash{display:inline}
+#muteCap.off{color:var(--stop)}
 .pair{width:100%;display:flex;justify-content:space-around;align-items:flex-start}
 .pair > div{display:flex;flex-direction:column;align-items:center;gap:10px}
 .bottom{display:flex;flex-direction:column;align-items:center;gap:10px;flex:none;padding-bottom:4px}

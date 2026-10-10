@@ -1,8 +1,9 @@
-// Le téléphone : écrans (mission 2), micro (mission 4), numéro perso (mission 5), appels (mission 6), voix (mission 7).
+// Le téléphone : écrans (mission 2), micro (mission 4), numéro perso (mission 5), appels (mission 6), voix (mission 7),
+// chrono et sourdine (mission 8).
 (function(){
   let typed = "";                  // ce qu'on tape sur le clavier
   let friend = "";                 // le code de l'ami en ligne avec nous (appelé ou appelant)
-  let tick = null, seconds = 0;    // pour le chrono
+  let tick = null, startAt = 0;    // pour le chrono (startAt = l'heure où le son s'est connecté, 0 = pas encore)
   const $ = id => document.getElementById(id);
   const fmt = c => c.slice(0,3) + " " + c.slice(3);   // "731205" -> "731 205"
 
@@ -159,16 +160,24 @@
     for (let i=1;i<=4;i++) $("s"+i).hidden = i !== n;
     ["outCode","inCode","liveCode"].forEach(id => $(id).textContent = fmt(friend));
     ["outAvatar","inAvatar","liveAvatar"].forEach(id => paintAvatar($(id), friend));
-    clearInterval(tick);
-    if (n === 4){
-      seconds = 0; $("timer").textContent = "00:00";
-      tick = setInterval(() => {
-        seconds++;
-        const m = String(Math.floor(seconds/60)).padStart(2,"0"), s = String(seconds%60).padStart(2,"0");
-        $("timer").textContent = m + ":" + s;
-      }, 1000);
-    }
+    if (n !== 4) stopChrono();
+    else if (!startAt){ $("timer").textContent = "00:00"; $("timer").classList.add("wait"); }
   }
+
+  // Mission 8 : le chrono. Il démarre quand le son est connecté (pas avant), et on lit l'horloge
+  // au lieu de compter +1 : un téléphone qui met la page en veille ne lui fait pas perdre de secondes.
+  function clock(){
+    const sec = Math.floor((Date.now() - startAt) / 1000);
+    return String(Math.floor(sec/60)).padStart(2,"0") + ":" + String(sec%60).padStart(2,"0");
+  }
+  function startChrono(){
+    if (startAt) return;   // déjà parti
+    startAt = Date.now();
+    $("timer").classList.remove("wait");
+    $("timer").textContent = clock();
+    tick = setInterval(() => { $("timer").textContent = clock(); }, 250);
+  }
+  function stopChrono(){ clearInterval(tick); tick = null; startAt = 0; }
   go(1);
 
   // ---------- Mission 6 : appeler un code grâce au standardiste PeerJS ----------
@@ -282,7 +291,18 @@
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return Promise.reject({ name: "NoMicHere" });
     return navigator.mediaDevices.getUserMedia(VOICE);
   }
+  let soundUp = false;     // mission 8 : le tuyau de son est vraiment branché (la voix circule)
+  let heard = false;       // le haut-parleur caché a bien démarré
   function soundState(text){ $("soundState").textContent = text; }
+  function showSound(){ if ($("soundBtn").hidden) soundState(soundUp && heard ? "Son connecté" : "Connexion du son…"); }
+  // Mission 8 : le son passe. Je lance mon chrono et je crie « top ! » à l'ami pour qu'il lance le sien au même moment.
+  function onSoundUp(){
+    if (soundUp) return;
+    soundUp = true;
+    showSound();
+    startChrono();
+    send({ t: "chrono" });
+  }
   // Brancher le tuyau de son : quand la voix de l'ami arrive, on la joue dans le haut-parleur caché
   function plugMedia(mc){
     media = mc;
@@ -291,6 +311,11 @@
       if (mc !== media) return;
       if ($("voice").srcObject !== remote) $("voice").srcObject = remote;
       playVoice();
+      // Le son est « connecté » quand le chemin entre les deux appareils est trouvé (état « connected » de WebRTC)
+      const pc = mc.peerConnection;
+      const check = () => { if (mc === media && pc && ["connected","completed"].includes(pc.iceConnectionState)) onSoundUp(); };
+      if (pc) pc.addEventListener("iceconnectionstatechange", check);
+      check();
     });
     mc.on("close", () => { if (mc === media && state === "live") endCall("L'appel a été coupé."); });
     mc.on("error", () => { if (mc === media && state === "live") endCall("Le son n'a pas pu passer. Réessaie."); });
@@ -299,7 +324,7 @@
   function playVoice(){
     $("voice").play().then(() => {
       if (!media) return;
-      soundState("Son connecté"); $("soundBtn").hidden = true;
+      heard = true; $("soundBtn").hidden = true; showSound();
     }).catch(() => {
       if (!media) return;
       soundState("Le téléphone bloque le son :"); $("soundBtn").hidden = false;
@@ -313,8 +338,28 @@
     if (m) setTimeout(() => m.close(), 500);   // petit délai : laisse d'abord partir le message « raccroche »
     $("voice").pause(); $("voice").srcObject = null;
     $("soundBtn").hidden = true;
+    soundUp = heard = false;
     soundState("Connexion du son…");
+    setMuted(false);                 // mission 8 : au prochain appel, le micro repart allumé
+    $("peerMute").hidden = true;
   }
+
+  // Mission 8 : couper mon micro. On ne l'éteint pas vraiment : on « pose la main dessus »
+  // (le son envoyé devient du silence), et l'ami est prévenu par un petit message.
+  let muted = false;
+  function setMuted(on){
+    muted = on;
+    if (callStream) callStream.getAudioTracks().forEach(t => t.enabled = !on);
+    $("muteBtn").setAttribute("aria-pressed", on);
+    $("muteBtn").setAttribute("aria-label", on ? "Rallumer le micro" : "Couper le micro");
+    $("muteCap").textContent = on ? "Micro coupé" : "Couper le micro";
+    $("muteCap").classList.toggle("off", on);
+  }
+  $("muteBtn").addEventListener("click", () => {
+    if (state !== "live") return;
+    setMuted(!muted);
+    send({ t: "micro", coupe: muted });
+  });
   // L'ami vient de décrocher et me tend son tuyau de son : je réponds avec mon micro
   function incomingMedia(mc){
     const ok = mc.peer === PREFIX + friend && callStream && !media && (state === "calling" || state === "live");
@@ -377,6 +422,11 @@
     else if (state === "calling" && d.t === "occupe") endCall("Le " + fmt(friend) + " est déjà en ligne avec quelqu'un. Réessaie plus tard.");
     else if (state === "ringing" && d.t === "annule") endCall("Appel manqué du " + fmt(friend) + ".");
     else if (state === "live" && d.t === "raccroche") endCall("Appel terminé.", true);
+    else if (state === "live" && d.t === "chrono") startChrono();   // mission 8 : le « top ! » de l'ami
+    else if (state === "live" && d.t === "micro"){                   // mission 8 : l'ami a coupé / rallumé son micro
+      $("peerMute").textContent = "Le " + fmt(friend) + " a coupé son micro.";
+      $("peerMute").hidden = !d.coupe;
+    }
   }
   // Le fil avec l'ami s'est coupé sans message
   function lineCut(){
@@ -388,6 +438,8 @@
   function endCall(text, info){
     clearTimeout(ringTimer);
     callId++;
+    // Mission 8 : si on a parlé, on ajoute la durée : « Appel terminé (02:15). »
+    if (startAt && text) text = text.replace(/\.$/, "") + " (" + clock() + ").";
     stopVoice();   // mission 7 : le micro s'éteint dès que l'appel se termine, quelle qu'en soit la raison
     const c = conn; conn = null;
     state = "idle";

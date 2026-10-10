@@ -93,12 +93,23 @@
       <div class="cap" id="soundState">Connexion du son…</div>
       <!-- Si le téléphone bloque le son, un appui sur ce bouton l'allume -->
       <button class="mic-btn" id="soundBtn" hidden>Toucher pour entendre</button>
+      <!-- Mission 8 : prévient quand l'ami a coupé son micro -->
+      <p class="mic-msg info" id="peerMute" role="status" hidden></p>
     </div>
     <!-- Le haut-parleur caché qui joue la voix de l'ami -->
     <audio id="voice" autoplay playsinline></audio>
-    <div class="bottom">
-      <button class="big stop" id="hangBtn" aria-label="Raccrocher"><svg viewBox="0 0 24 24" fill="#fff"><use href="#ph"/></svg></button>
-      <span class="cap">Raccrocher</span>
+    <div class="pair">
+      <!-- Mission 8 : couper / rallumer mon micro -->
+      <div>
+        <button class="big mute" id="muteBtn" aria-pressed="false" aria-label="Couper le micro">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/><path class="slash" d="M3 3l18 18"/></svg>
+        </button>
+        <span class="cap" id="muteCap">Couper le micro</span>
+      </div>
+      <div>
+        <button class="big stop" id="hangBtn" aria-label="Raccrocher"><svg viewBox="0 0 24 24" fill="#fff"><use href="#ph"/></svg></button>
+        <span class="cap">Raccrocher</span>
+      </div>
     </div>
   </section>
 </div>
