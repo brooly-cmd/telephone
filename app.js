@@ -722,6 +722,27 @@
   // Mission 10 : le « veilleur » (sw.js). « updateViaCache: none » = le navigateur vérifie toujours s'il y a un nouveau veilleur.
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
 
+  // Mission 13 (correctif) : une page restée en mémoire (surtout sur iPhone, quand on quitte l'appli sans la fermer)
+  // garde son ancienne version. À chaque retour sur la page, on regarde l'« étiquette » des fichiers chez GitHub
+  // (sans les télécharger) ; si elle a changé, la page se recharge toute seule, seulement quand elle est libre.
+  // On attend 3 s après le retour : si on revient en touchant une notification d'appel, l'appel passe d'abord.
+  async function versionTag(){
+    const tags = await Promise.all(["index.html", "app.js", "style.css"].map(f =>
+      fetch(f, { method: "HEAD", cache: "no-store" }).then(r => r.ok ? (r.headers.get("etag") || r.headers.get("last-modified") || "") : "")));
+    return tags.join("|");
+  }
+  let myVersion = "";
+  versionTag().then(v => { myVersion = v; }).catch(() => {});
+  const isFree = () => state === "idle" && !$("s1").hidden && document.visibilityState === "visible";
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || !myVersion) return;
+    setTimeout(async () => {
+      if (!isFree()) return;
+      let v = ""; try { v = await versionTag(); } catch(e){ return; }
+      if (v && v !== myVersion && isFree()) location.reload();
+    }, 3000);
+  });
+
   // ---------- Mission 12 : les notifications ----------
   // Le navigateur fabrique une « adresse de notification » (abonnement) chez Google, Apple, Mozilla ou Microsoft.
   // On la confie au relais avec mon numéro et un jeton secret (la clé de ma boîte aux lettres, tirée une seule fois).
