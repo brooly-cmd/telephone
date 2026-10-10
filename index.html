@@ -15,7 +15,7 @@
 <div class="app">
   <!-- Écran 1 : Accueil -->
   <section class="screen" id="s1">
-    <div class="label">Mon numéro</div>
+    <div class="label head">Mon numéro <span class="net" id="net">Connexion…</span></div>
     <div class="mine">
       <span class="num" id="myCode">482 917</span>
       <button class="copy" id="copyBtn" aria-label="Copier mon numéro">
@@ -34,7 +34,13 @@
       <div class="meter" id="meter" hidden><div class="meter-fill" id="meterFill"></div></div>
     </div>
     <p class="mic-msg" id="micMsg" role="status" hidden></p>
-    <div class="display num" id="display" aria-live="polite"></div>
+    <!-- Mission 6 : messages du standardiste et des appels (refusé, pas connecté…) -->
+    <p class="mic-msg" id="callMsg" role="status" hidden></p>
+    <!-- Les chiffres tapés. La case invisible par-dessus sert seulement à « Coller » un code (appui long sur téléphone). -->
+    <div class="display-wrap">
+      <div class="display num" id="display" aria-live="polite"></div>
+      <input class="paste" id="pasteBox" inputmode="none" autocomplete="off" aria-label="Code à appeler (tu peux coller un code ici)">
+    </div>
     <div class="pad" id="pad"></div>
     <button class="wide go" id="callBtn" disabled>
       <svg viewBox="0 0 24 24" fill="currentColor"><use href="#ph"/></svg>
@@ -46,11 +52,11 @@
   <section class="screen" id="s2" hidden>
     <div class="center">
       <div class="rings"><div class="avatar" id="outAvatar"></div></div>
-      <div class="status">Ça sonne…</div>
+      <div class="status" id="outStatus">Ça sonne…</div>
       <div class="big-num num" id="outCode">731 205</div>
     </div>
     <div class="bottom">
-      <button class="big stop" data-go="1" aria-label="Raccrocher"><svg viewBox="0 0 24 24" fill="#fff"><use href="#ph"/></svg></button>
+      <button class="big stop" id="cancelBtn" aria-label="Raccrocher"><svg viewBox="0 0 24 24" fill="#fff"><use href="#ph"/></svg></button>
       <span class="cap">Raccrocher</span>
     </div>
   </section>
@@ -65,11 +71,11 @@
     </div>
     <div class="pair">
       <div>
-        <button class="big stop" data-go="1" aria-label="Refuser"><svg viewBox="0 0 24 24" fill="#fff"><use href="#ph"/></svg></button>
+        <button class="big stop" id="refuseBtn" aria-label="Refuser"><svg viewBox="0 0 24 24" fill="#fff"><use href="#ph"/></svg></button>
         <span class="cap">Refuser</span>
       </div>
       <div>
-        <button class="big go" data-go="4" aria-label="Décrocher"><svg viewBox="0 0 24 24" fill="#fff"><use href="#ph"/></svg></button>
+        <button class="big go" id="answerBtn" aria-label="Décrocher"><svg viewBox="0 0 24 24" fill="#fff"><use href="#ph"/></svg></button>
         <span class="cap">Décrocher</span>
       </div>
     </div>
@@ -82,20 +88,13 @@
       <div class="big-num num small" id="liveCode">731 205</div>
       <div class="label">En appel</div>
       <div class="timer num" id="timer">00:00</div>
+      <div class="cap">Le son arrivera à la mission 7</div>
     </div>
     <div class="bottom">
-      <button class="big stop" data-go="1" aria-label="Raccrocher"><svg viewBox="0 0 24 24" fill="#fff"><use href="#ph"/></svg></button>
+      <button class="big stop" id="hangBtn" aria-label="Raccrocher"><svg viewBox="0 0 24 24" fill="#fff"><use href="#ph"/></svg></button>
       <span class="cap">Raccrocher</span>
     </div>
   </section>
-
-  <!-- Barre de test 1-2-3-4 (à enlever plus tard) -->
-  <nav class="tabs" role="tablist" aria-label="Écrans de test">
-    <button class="tab" role="tab" data-go="1" aria-selected="true"><b>1</b>Accueil</button>
-    <button class="tab" role="tab" data-go="2"><b>2</b>Ça sonne</button>
-    <button class="tab" role="tab" data-go="3"><b>3</b>Entrant</button>
-    <button class="tab" role="tab" data-go="4"><b>4</b>En cours</button>
-  </nav>
 </div>
 
 <!-- Le dessin du combiné, réutilisé sur tous les boutons -->
@@ -103,6 +102,8 @@
   <symbol id="ph" viewBox="0 0 24 24"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></symbol>
 </svg>
 
+<!-- PeerJS : le « standardiste » qui met les deux pages en relation -->
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <!-- L'électricité de la page -->
 <script src="app.js"></script>
 </body>
