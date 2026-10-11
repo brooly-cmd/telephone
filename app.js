@@ -415,7 +415,10 @@
     }
   });
   // En fermant la page : on prévient l'ami et on rend le numéro au standardiste
-  window.addEventListener("pagehide", () => {
+  window.addEventListener("pagehide", e => {
+    // Mission 18 : page mise de côté mais gardée en mémoire (iPhone qui passe à une autre appli) : on ne raccroche pas,
+    // l'appel attend le retour (jusqu'à 5 min). Seule une vraie fermeture raccroche.
+    if (e.persisted && state === "live") return;
     const wasLive = state === "live";
     if (state === "calling") send({ t: "annule" });
     else if (state === "ringing") send({ t: "refuse" });
@@ -797,7 +800,8 @@
       else endCall("Appel terminé.", true);
     }
     else if (state === "live" && (d.t === "absent" || d.t === "present")){   // mission 18 : l'ami quitte l'appli / revient
-      friendAway = d.t === "absent";
+      if (friendAway === (d.t === "absent")) return;   // déjà su : on ne le note qu'une fois
+      friendAway = d.t === "absent"; holdLeft = 0;
       diagLog(friendAway ? "L'ami a quitté l'appli" : "L'ami est revenu dans l'appli");
       peerAwayMsg();
     }
@@ -890,7 +894,7 @@
     if (!("serviceWorker" in navigator) || !("Notification" in window) || Notification.permission !== "granted") return;
     const name = nameOf(friend) || fmt(friend);
     navigator.serviceWorker.getRegistration().then(reg => reg && reg.showNotification("En appel avec " + name, {
-      body: ios ? "Garde l'app ouverte pendant l'appel. Touche pour revenir à l'appel." : "Touche pour revenir à l'appel.",
+      body: ios ? "Touche pour revenir à l'appel : tant que tu n'es pas dans l'app, vous ne vous entendez plus." : "Touche pour revenir à l'appel.",
       icon: "icon-192.png", tag: "encours", silent: true, data: { type: "encours" },
     })).catch(() => {});
   }
@@ -923,8 +927,10 @@
 
   // 4. Ne jamais laisser un appel muet. Les deux pages s'envoient « coucou » toutes les 2 s (un battement de cœur).
   //    Plus de coucou ET plus de son pendant 10 s = l'appel est mort : on raccroche en expliquant pourquoi.
+  //    Sauf si l'ami a quitté l'appli : l'appel l'attend jusqu'à 5 min (« en attente »), et reprend s'il revient à temps.
   //    On regarde les deux : sur Android, la voix peut continuer même si la page dort (et alors, pas de coucou).
-  const DEAD_MS = 10000;
+  const DEAD_MS = 10000, HOLD_MS = 5 * 60000;
+  let holdLeft = 0;   // l'ami est parti et on ne l'entend plus : secondes avant de couper (0 = pas en attente)
   let beat = null, lastPing = 0, lastTick = 0, graceUntil = 0, voiceSeen = { n: -1, at: 0 };
   let away = false, awayTimer = null;   // j'ai quitté l'appli pendant l'appel (téléphone seulement)
   let friendAway = false, friendCut = false, myCut = false;   // l'ami a quitté l'appli / son micro ou le mien interrompu
@@ -940,7 +946,7 @@
   function endLive(){
     clearInterval(beat); beat = null;
     closeLiveNotif(); mediaInfo(false);
-    friendAway = friendCut = myCut = false; peerAwayMsg();
+    friendAway = friendCut = myCut = false; holdLeft = 0; peerAwayMsg();
     away = false; clearTimeout(awayTimer); forgetCutNote();
   }
   async function beatTick(){
@@ -959,7 +965,9 @@
     }
     if (state !== "live" || Date.now() < graceUntil) return;
     const quiet = Date.now() - Math.max(lastPing, voiceSeen.at);
-    if (quiet < DEAD_MS) return;
+    const left = friendAway && quiet > 4000 ? Math.max(0, Math.ceil((HOLD_MS - quiet) / 1000)) : 0;
+    if (left !== holdLeft){ holdLeft = left; peerAwayMsg(); }
+    if (quiet < (friendAway ? HOLD_MS : DEAD_MS)) return;
     diagLog("Plus de nouvelles de l'ami depuis " + Math.round(quiet / 1000) + " s : appel coupé");
     say({ t: "raccroche", coupe: true });
     liveCut("L'appel a été coupé : plus de nouvelles " + ofWho(friend) + " (connexion perdue).");
@@ -990,7 +998,9 @@
   // Les petites lignes de l'écran d'appel : l'ami a quitté l'appli, ou un appel téléphonique coupe un micro
   function peerAwayMsg(){
     const lines = [];
-    if (friendAway) lines.push(Who(friend) + " a quitté l'app : l'appel peut se couper.");
+    const mmss = s => Math.floor(s / 60) + " min " + String(s % 60).padStart(2, "0") + " s";
+    if (friendAway && holdLeft) lines.push(Who(friend) + " a quitté l'app : vous ne vous entendez plus. L'appel reprend dès son retour (coupé dans " + mmss(holdLeft) + ").");
+    else if (friendAway) lines.push(Who(friend) + " a quitté l'app.");
     else if (friendCut) lines.push("Le micro " + ofWho(friend) + " est interrompu par son téléphone (appel en cours ?).");
     if (myCut) lines.push("Ton micro est interrompu par ton téléphone (appel en cours ?).");
     $("peerAway").textContent = lines.join(" ");
@@ -1016,6 +1026,7 @@
       if (state === "live" && onPhone()){
         away = true; clearTimeout(awayTimer);
         say({ t: "absent" }); keepCutNote(true);
+        showLiveNotif();   // l'iPhone cache les notifications quand l'appli est ouverte : on la remet en partant
         diagLog("J'ai quitté l'appli pendant l'appel");
       }
       return;
