@@ -1,7 +1,8 @@
 // Le téléphone : écrans (mission 2), micro (mission 4), numéro perso (mission 5), appels (mission 6), voix (mission 7),
 // chrono et sourdine (mission 8), répertoire (mission 9), page installable (mission 10), notifications (mission 12),
 // prévenir l'ami par notification et rejoindre l'appel en la touchant (mission 13), sonneries (mission 14),
-// relais de voix et écran Diagnostic (mission 15), historique des appels (mission 17).
+// relais de voix et écran Diagnostic (mission 15), historique des appels (mission 17),
+// appel quand on quitte l'appli : écran allumé, notification « En appel », appel coupé expliqué des deux côtés (mission 18).
 (function(){
   let typed = "";                  // ce qu'on tape sur le clavier
   let friend = "";                 // le code de l'ami en ligne avec nous (appelé ou appelant)
@@ -203,6 +204,7 @@
     else if (!startAt){ $("timer").textContent = "00:00"; $("timer").classList.add("wait"); }
     sounds();   // mission 14 : chaque écran a son son (ou son silence)
     diagShow(n);   // mission 15
+    keepAwake(n >= 2 && n <= 4);   // mission 18 : écran allumé pendant que ça sonne et pendant l'appel
   }
 
   // Mission 8 : le chrono. Il démarre quand le son est connecté (pas avant), et on lit l'horloge
@@ -327,15 +329,20 @@
   let conn = null;       // le fil direct avec l'ami pendant un appel
   let state = "idle";    // idle (libre), calling (ça sonne chez lui), ringing (ça sonne chez moi), live (en appel)
   let ringTimer = null, retryTimer = null;
-  const PAGE_VERSION = "17";   // mission 15 : écrit dans le diagnostic, pour savoir si l'ami a bien la dernière page
+  const PAGE_VERSION = "18";   // mission 15 : écrit dans le diagnostic, pour savoir si l'ami a bien la dernière page
   // Mission 15 : le badge du relais de voix (TURN), demandé à mon relais Cloudflare
   const turn = { servers: null, until: 0, pending: null, why: "pas encore demandé" };
   let joinedAt = 0;   // mission 15 (correctif) : l'heure où on a touché une notification d'appel
 
-  function callMessage(text, info){
+  // net = true : message sur la ligne du standardiste, effacé tout seul quand la ligne revient (mission 18)
+  function callMessage(text, info, net){
+    // Mission 18 : « L'appel s'est coupé… » + Rappeler reste affiché ; la ligne du standardiste se lit sur le voyant en haut
+    if (net && !$("recallBtn").hidden) return;
     $("callMsg").textContent = text;
     $("callMsg").hidden = !text;
     $("callMsg").classList.toggle("info", !!info);
+    if (net) $("callMsg").dataset.net = "1"; else delete $("callMsg").dataset.net;
+    $("recallBtn").hidden = true;   // mission 18 : le bouton « Rappeler » ne va qu'avec son message
   }
   function setNet(kind){
     const labels = { wait: "Connexion…", on: "En ligne", off: "Hors ligne" };
@@ -347,7 +354,7 @@
   function startPeer(){
     if (typeof Peer === "undefined"){
       setNet("off");
-      callMessage("Le standardiste n'a pas pu être chargé. Vérifie ta connexion internet, puis recharge la page.");
+      callMessage("Le standardiste n'a pas pu être chargé. Vérifie ta connexion internet, puis recharge la page.", false, true);
       return;
     }
     if (peer) peer.destroy();
@@ -356,7 +363,8 @@
     p.on("open", () => {
       if (p !== peer) return;
       setNet("on");
-      if (state === "idle") callMessage("");
+      // Mission 18 : on n'efface que les messages du standardiste (« L'appel s'est coupé… » doit rester visible au retour)
+      if (state === "idle" && $("callMsg").dataset.net) callMessage("");
     });
     p.on("connection", c => { if (p === peer) incoming(c); });
     p.on("call", mc => { if (p === peer) incomingMedia(mc); else mc.close(); });
@@ -366,7 +374,7 @@
     setTimeout(() => {
       if (p === peer && !p.open && !p.destroyed && state === "idle"){
         setNet("off");
-        callMessage("Le standardiste ne répond pas. Vérifie ta connexion internet ; la page réessaie toute seule.");
+        callMessage("Le standardiste ne répond pas. Vérifie ta connexion internet ; la page réessaie toute seule.", false, true);
       }
     }, 10000);
   }
@@ -390,12 +398,12 @@
     }
     setNet("off");
     if (e.type === "unavailable-id"){
-      callMessage("Ton numéro est déjà utilisé : la page est sans doute ouverte dans un autre onglet ou une autre fenêtre. Ferme-la ; celle-ci réessaie toute seule.");
+      callMessage("Ton numéro est déjà utilisé : la page est sans doute ouverte dans un autre onglet ou une autre fenêtre. Ferme-la ; celle-ci réessaie toute seule.", false, true);
       retryLater();
     } else if (e.type === "browser-incompatible"){
       callMessage("Ce navigateur ne sait pas passer d'appels. Essaie avec Chrome, Edge, Firefox ou Safari à jour.");
     } else {   // network, server-error, socket-error… : la ligne avec le standardiste est coupée
-      if (state === "idle") callMessage("Le standardiste ne répond pas. Vérifie ta connexion internet ; la page réessaie toute seule.");
+      if (state === "idle") callMessage("Le standardiste ne répond pas. Vérifie ta connexion internet ; la page réessaie toute seule.", false, true);
       retryLater();
     }
   }
@@ -408,13 +416,16 @@
   });
   // En fermant la page : on prévient l'ami et on rend le numéro au standardiste
   window.addEventListener("pagehide", () => {
+    const wasLive = state === "live";
     if (state === "calling") send({ t: "annule" });
     else if (state === "ringing") send({ t: "refuse" });
-    else if (state === "live") send({ t: "raccroche" });
+    else if (wasLive) send({ t: "raccroche", parti: true });   // mission 18 : l'ami lira « Noa a quitté l'app, l'appel est coupé »
     logCall(state === "calling" ? "annule" : state === "ringing" ? "refuse" : "");   // mission 17 : noter l'appel avant de fermer
+    closeLiveNotif(); mediaInfo(false);   // mission 18
     playSound("");
     stopVoice();
     if (peer) peer.destroy();
+    if (wasLive) keepCutNote(false);   // mission 18 : en dernier (couper la ligne termine l'appel, ce qui jette le post-it)
   });
 
   // Envoyer un petit message à l'ami (attend que le fil soit prêt si besoin)
@@ -425,7 +436,7 @@
   }
   // Brancher les « oreilles » sur le fil avec l'ami
   function wire(c){
-    c.on("data", d => { if (c === conn) onData(d); });
+    c.on("data", d => { if (c === conn){ lastPing = Date.now(); onData(d); } });   // mission 18 : tout message = « il est là »
     c.on("close", () => { if (c === conn) lineCut(); });
     c.on("error", e => { if (c === conn){ diagLog("Erreur des messages : " + (e && e.type || e)); lineCut(); } });
     diagWatch(c.peerConnection, "Chemin des messages");   // mission 15
@@ -470,10 +481,10 @@
       if (pc) pc.addEventListener("iceconnectionstatechange", check);
       check();
     });
-    mc.on("close", () => { if (mc === media && state === "live") endCall("L'appel a été coupé."); });
+    mc.on("close", () => { if (mc === media) liveCut("L'appel a été coupé."); });   // mission 18 : en expliquant pourquoi
     mc.on("error", e => {
       if (mc === media) diagLog("Erreur du son : " + (e && e.type || e));   // mission 15
-      if (mc === media && state === "live") endCall("Le son n'a pas pu passer. Réessaie.");
+      if (mc === media) liveCut("Le son n'a pas pu passer. Réessaie.");
     });
   }
   // Certains téléphones bloquent le son tant qu'on n'a pas touché l'écran : on affiche alors un bouton
@@ -745,7 +756,7 @@
       clearTimeout(ringTimer);
       reach = null;
       diagLog("L'ami a rejoint par la notification");   // mission 15
-      state = "live"; go(4);
+      state = "live"; go(4); onLive();
       send({ t: "decroche" });
       plugMedia(peer.call(PREFIX + friend, callStream));
       return;
@@ -769,7 +780,7 @@
   // Les petits messages échangés entre les deux pages
   function onData(d){
     if (!d || typeof d.t !== "string") return;
-    if (state === "calling" && d.t === "decroche"){ clearTimeout(ringTimer); diagLog("L'ami a décroché"); state = "live"; go(4); }
+    if (state === "calling" && d.t === "decroche"){ clearTimeout(ringTimer); diagLog("L'ami a décroché"); state = "live"; go(4); onLive(); }
     else if (state === "calling" && d.t === "sonne" && joining){   // mission 13
       ringHint("L'appel était fini : tu rappelles " + who(friend) + ".");
       recall = true; sounds();   // mission 14 : c'est un vrai appel qui sonne chez lui : « tuuut… »
@@ -779,7 +790,22 @@
     else if (state === "calling" && d.t === "nomicro") endCall(Who(friend) + " a voulu décrocher, mais son micro ne marche pas.");
     else if (state === "calling" && d.t === "occupe"){ outcome("occupe"); endCall(Who(friend) + " est déjà en ligne avec quelqu'un. Réessaie plus tard."); }
     else if (state === "ringing" && d.t === "annule") endCall("Appel manqué " + ofWho(friend) + ".");
-    else if (state === "live" && d.t === "raccroche") endCall("Appel terminé.", true);
+    else if (state === "live" && d.t === "raccroche"){
+      // Mission 18 : l'ami a fermé son appli (parti), ou sa page a vu l'appel mort pendant que j'étais parti (coupe)
+      if (d.parti) endCall(Who(friend) + " a quitté l'app, l'appel est coupé.");
+      else if (d.coupe && away) endAway();
+      else endCall("Appel terminé.", true);
+    }
+    else if (state === "live" && (d.t === "absent" || d.t === "present")){   // mission 18 : l'ami quitte l'appli / revient
+      friendAway = d.t === "absent";
+      diagLog(friendAway ? "L'ami a quitté l'appli" : "L'ami est revenu dans l'appli");
+      peerAwayMsg();
+    }
+    else if (state === "live" && (d.t === "coupure" || d.t === "reprise")){   // mission 18 : appel téléphonique, Siri… chez l'ami
+      friendCut = d.t === "coupure";
+      diagLog(friendCut ? "Le micro de l'ami est interrompu par son téléphone" : "Le micro de l'ami repart");
+      peerAwayMsg();
+    }
     else if (state === "live" && d.t === "chrono") startChrono();   // mission 8 : le « top ! » de l'ami
     else if (state === "live" && d.t === "micro"){                   // mission 8 : l'ami a coupé / rallumé son micro
       $("peerMute").textContent = Who(friend) + " a coupé son micro.";
@@ -790,7 +816,7 @@
   function lineCut(){
     if (state === "calling") endCall("La communication a été coupée.");
     else if (state === "ringing") endCall("Appel manqué " + ofWho(friend) + ".");
-    else if (state === "live") endCall("L'appel a été coupé.");
+    else liveCut("L'appel a été coupé.");   // mission 18 : en expliquant pourquoi
   }
   // Fin de l'appel, quelle qu'en soit la raison : retour à l'accueil avec un message
   function endCall(text, info){
@@ -804,6 +830,7 @@
     const c = conn; conn = null;
     state = "idle";
     reach = null; joining = false; recall = false; $("joinBtn").hidden = true;   // mission 13 (+ 14)
+    endLive();   // mission 18 : battement de cœur, notification « En appel », écran d'Android, post-it
     if (c) setTimeout(() => c.close(), 500);   // petit délai pour que le dernier message parte bien
     go(1);
     callMessage(text || "", info);
@@ -836,10 +863,187 @@
     if (!peer || !peer.open){ s.getTracks().forEach(t => t.stop()); send({ t: "nomicro" }); endCall("La ligne avec le standardiste est coupée. Réessaie dans un instant."); return; }
     clearTimeout(ringTimer);
     callStream = s;
-    send({ t: "decroche" }); state = "live"; go(4);
+    send({ t: "decroche" }); state = "live"; go(4); onLive();
     plugMedia(peer.call(PREFIX + friend, s));
   }
   $("hangBtn").addEventListener("click", () => { send({ t: "raccroche" }); endCall("Appel terminé.", true); });
+
+  // ---------- Mission 18 : l'appel quand on quitte l'appli ou que l'écran se verrouille ----------
+  // 1. Le verrou d'éveil (Wake Lock) : une cale sous la porte pour que l'écran ne s'éteigne pas tout seul.
+  //    Le téléphone retire la cale quand on quitte la page : on la remet à chaque retour.
+  let wake = null, wantWake = false, wakeAsking = false;
+  function keepAwake(on){
+    wantWake = on;
+    if (!on){ const w = wake; wake = null; if (w) w.release().catch(() => {}); return; }
+    if (wake || wakeAsking || !("wakeLock" in navigator) || document.visibilityState !== "visible") return;
+    wakeAsking = true;
+    navigator.wakeLock.request("screen").then(w => {
+      wakeAsking = false;
+      if (!wantWake){ w.release().catch(() => {}); return; }
+      wake = w; diagLog("Écran gardé allumé");
+      w.addEventListener("release", () => { if (wake === w) wake = null; });
+    }, e => { wakeAsking = false; diagLog("Écran gardé allumé : impossible (" + (e && e.name || e) + ")"); });
+  }
+
+  // 2. La notification « En appel avec Noa » (silencieuse) : la toucher ramène sur l'appel. Elle part quand on raccroche.
+  function showLiveNotif(){
+    if (!("serviceWorker" in navigator) || !("Notification" in window) || Notification.permission !== "granted") return;
+    const name = nameOf(friend) || fmt(friend);
+    navigator.serviceWorker.getRegistration().then(reg => reg && reg.showNotification("En appel avec " + name, {
+      body: ios ? "Garde l'app ouverte pendant l'appel. Touche pour revenir à l'appel." : "Touche pour revenir à l'appel.",
+      icon: "icon-192.png", tag: "encours", silent: true, data: { type: "encours" },
+    })).catch(() => {});
+  }
+  function closeLiveNotif(){
+    if (!("serviceWorker" in navigator)) return;
+    navigator.serviceWorker.getRegistration()
+      .then(reg => reg ? reg.getNotifications({ tag: "encours" }) : [])
+      .then(list => list.forEach(n => n.close())).catch(() => {});
+  }
+
+  // 3. Android : l'appel sur l'écran verrouillé, comme un lecteur de musique (Media Session = la télécommande du téléphone).
+  //    Le bouton ⏸ de cette télécommande raccroche. Pas sur iPhone ni PC, où ⏸ couperait juste le son sans raccrocher.
+  function mediaInfo(on){
+    if (!("mediaSession" in navigator) || !/Android/i.test(navigator.userAgent)) return;
+    const ms = navigator.mediaSession, acts = ["hangup", "pause", "stop"];
+    try {
+      if (!on){
+        ms.metadata = null; ms.playbackState = "none";
+        acts.forEach(a => { try { ms.setActionHandler(a, null); } catch(e){} });
+        return;
+      }
+      ms.metadata = new MediaMetadata({
+        title: "En appel avec " + (nameOf(friend) || fmt(friend)), artist: "Téléphone · ⏸ = raccrocher",
+        artwork: [{ src: "icon-192.png", sizes: "192x192", type: "image/png" }, { src: "icon-512.png", sizes: "512x512", type: "image/png" }],
+      });
+      ms.playbackState = "playing";
+      acts.forEach(a => { try { ms.setActionHandler(a, () => { if (state === "live") $("hangBtn").click(); }); } catch(e){} });
+    } catch(e){}
+  }
+
+  // 4. Ne jamais laisser un appel muet. Les deux pages s'envoient « coucou » toutes les 2 s (un battement de cœur).
+  //    Plus de coucou ET plus de son pendant 10 s = l'appel est mort : on raccroche en expliquant pourquoi.
+  //    On regarde les deux : sur Android, la voix peut continuer même si la page dort (et alors, pas de coucou).
+  const DEAD_MS = 10000;
+  let beat = null, lastPing = 0, lastTick = 0, graceUntil = 0, voiceSeen = { n: -1, at: 0 };
+  let away = false, awayTimer = null;   // j'ai quitté l'appli pendant l'appel (téléphone seulement)
+  let friendAway = false, friendCut = false, myCut = false;   // l'ami a quitté l'appli / son micro ou le mien interrompu
+  let recallCode = "";
+  const onPhone = () => ios || /Android/i.test(navigator.userAgent);
+  const say = msg => { if (conn && conn.open) try { conn.send(msg); } catch(e){} };   // sans attendre : maintenant ou jamais
+  function onLive(){
+    lastPing = lastTick = Date.now(); graceUntil = 0; voiceSeen = { n: -1, at: Date.now() };
+    clearInterval(beat); beat = setInterval(beatTick, 2000);
+    $("stayMsg").hidden = !ios;
+    showLiveNotif(); mediaInfo(true); watchMic();
+  }
+  function endLive(){
+    clearInterval(beat); beat = null;
+    closeLiveNotif(); mediaInfo(false);
+    friendAway = friendCut = myCut = false; peerAwayMsg();
+    away = false; clearTimeout(awayTimer); forgetCutNote();
+  }
+  async function beatTick(){
+    if (state !== "live") return;
+    const id = callId, now = Date.now();
+    if (now - lastTick > 6000) graceUntil = now + 4000;   // la page dormait (minuteurs arrêtés) : on laisse 4 s aux nouvelles
+    lastTick = now;
+    say({ t: "coucou" });
+    const pc = media && media.peerConnection;
+    if (pc){
+      let st = null; try { st = await pc.getStats(); } catch(e){}
+      if (id !== callId) return;
+      if (st) st.forEach(r => {
+        if (r.type === "inbound-rtp" && (r.kind || r.mediaType) === "audio" && r.packetsReceived > voiceSeen.n) voiceSeen = { n: r.packetsReceived, at: Date.now() };
+      });
+    }
+    if (state !== "live" || Date.now() < graceUntil) return;
+    const quiet = Date.now() - Math.max(lastPing, voiceSeen.at);
+    if (quiet < DEAD_MS) return;
+    diagLog("Plus de nouvelles de l'ami depuis " + Math.round(quiet / 1000) + " s : appel coupé");
+    say({ t: "raccroche", coupe: true });
+    liveCut("L'appel a été coupé : plus de nouvelles " + ofWho(friend) + " (connexion perdue).");
+  }
+  // L'appel en cours s'arrête sans « raccroche » : on dit pourquoi
+  function liveCut(text){
+    if (state !== "live") return;
+    if (away) endAway();
+    else if (friendAway) endCall(Who(friend) + " a quitté l'app, l'appel est coupé.");
+    else endCall(text);
+  }
+  function endAway(){
+    const code = friend;
+    endCall("L'appel s'est coupé quand tu as quitté l'app.");
+    showRecall(code);
+  }
+  function showRecall(code){
+    recallCode = code;
+    $("recallBtn").querySelector("span").textContent = "Rappeler " + (nameOf(code) || fmt(code));
+    $("recallBtn").hidden = false;
+  }
+  $("recallBtn").addEventListener("click", async () => {
+    const code = recallCode;
+    callMessage("");
+    if (!peer || !peer.open){ callMessage("Connexion au standardiste…", true, true); await peerReady(15000); }
+    if (state === "idle"){ callMessage(""); startCall(code); }
+  });
+  // Les petites lignes de l'écran d'appel : l'ami a quitté l'appli, ou un appel téléphonique coupe un micro
+  function peerAwayMsg(){
+    const lines = [];
+    if (friendAway) lines.push(Who(friend) + " a quitté l'app : l'appel peut se couper.");
+    else if (friendCut) lines.push("Le micro " + ofWho(friend) + " est interrompu par son téléphone (appel en cours ?).");
+    if (myCut) lines.push("Ton micro est interrompu par ton téléphone (appel en cours ?).");
+    $("peerAway").textContent = lines.join(" ");
+    $("peerAway").hidden = !lines.length;
+  }
+  // Un appel téléphonique normal (ou Siri…) prend le micro : le navigateur le signale (« mute ») et le rend après
+  function watchMic(){
+    const t = callStream && callStream.getAudioTracks()[0];
+    if (!t) return;
+    t.onmute = () => { if (state !== "live") return; myCut = true; say({ t: "coupure" }); diagLog("Mon micro est interrompu par le téléphone"); peerAwayMsg(); };
+    t.onunmute = () => { if (state !== "live") return; myCut = false; say({ t: "reprise" }); diagLog("Mon micro repart"); peerAwayMsg(); playVoice(); };
+  }
+  // Le post-it « appel coupé » rangé dans le navigateur quand je quitte l'appli en plein appel :
+  // si l'iPhone relance complètement l'appli, la page le retrouve au retour (et note l'appel dans l'historique).
+  function keepCutNote(withHist){
+    const c = current;
+    const h = withHist && c ? { code: c.code, sens: c.sens, at: c.at, fin: "ok", duree: startAt ? Math.floor((Date.now() - startAt) / 1000) : 0 } : null;
+    try { localStorage.setItem("appelCoupe", JSON.stringify({ code: friend, at: Date.now(), h })); } catch(e){}
+  }
+  function forgetCutNote(){ try { localStorage.removeItem("appelCoupe"); } catch(e){} }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden"){
+      if (state === "live" && onPhone()){
+        away = true; clearTimeout(awayTimer);
+        say({ t: "absent" }); keepCutNote(true);
+        diagLog("J'ai quitté l'appli pendant l'appel");
+      }
+      return;
+    }
+    if (wantWake) keepAwake(true);   // le téléphone a retiré la cale : on la remet
+    if (state !== "live") return;
+    graceUntil = Date.now() + 4000;  // on laisse 4 s aux nouvelles de l'ami avant de juger
+    playVoice();                     // l'iPhone a pu mettre le haut-parleur en pause
+    if (away){
+      say({ t: "present" });
+      diagLog("Je suis revenu dans l'appli");
+      clearTimeout(awayTimer);
+      // Toujours en appel 8 s après le retour : l'appel a tenu, on oublie le post-it
+      awayTimer = setTimeout(() => { if (state === "live" && document.visibilityState === "visible"){ away = false; forgetCutNote(); } }, 8000);
+    }
+  });
+  // À l'ouverture (ou page remise telle quelle depuis la mémoire du navigateur) : un post-it laissé par un appel coupé.
+  // L'appli a été fermée ou relancée entre-temps. 15 min maximum.
+  function checkCutNote(){
+    let note = null; try { note = JSON.parse(localStorage.getItem("appelCoupe") || "null"); } catch(e){}
+    forgetCutNote();
+    if (!note || !/^[1-9]\d{5}$/.test(note.code) || !(Date.now() - note.at < 15 * 60000) || state !== "idle") return;
+    if (note.h && typeof note.h.at === "number" && !hist.some(h => h.at === note.h.at && h.code === note.h.code)){ hist.unshift(note.h); saveHist(); }
+    callMessage("L'appel s'est coupé quand tu as quitté l'app.");
+    showRecall(note.code);
+  }
+  setTimeout(checkCutNote, 0);   // quand toute la page est prête (l'historique compris)
+  window.addEventListener("pageshow", e => { if (e.persisted) checkCutNote(); });
 
   // ---------- Mission 17 : l'historique des appels ----------
   // Un carnet rangé dans le navigateur (localStorage « historique »), le plus récent en premier, 50 lignes maximum.

@@ -190,3 +190,8 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
 .sq.small{width:40px;height:40px}
 .sq.small svg{width:18px;height:18px}
 .wide-box{width:100%}
+/* Mission 18 : le bouton vert « Rappeler » sous le message « L'appel s'est coupé… », et les messages de l'écran d'appel */
+.mic-btn.recall{width:100%;justify-content:center;color:#fff;border-color:var(--go)}
+.mic-btn.recall svg{width:18px;height:18px}
+#s4 .mic-msg{text-align:center}
+.mic-msg.stay{font-size:12px;color:var(--muted)}

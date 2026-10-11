@@ -89,6 +89,10 @@
     <p class="mic-msg" id="notifMsg" role="status" hidden></p>
     <!-- Mission 6 : messages du standardiste et des appels (refusé, pas connecté…) -->
     <p class="mic-msg" id="callMsg" role="status" hidden></p>
+    <!-- Mission 18 : l'appel s'est coupé parce qu'on a quitté l'appli : rappeler en un toucher -->
+    <button class="mic-btn go recall" id="recallBtn" hidden>
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><use href="#ph"/></svg><span>Rappeler</span>
+    </button>
     <!-- Mission 15 : après un appel, copier son diagnostic pour l'envoyer -->
     <button class="mic-btn diag-last" id="lastDiagBtn" hidden><span>Copier le diagnostic du dernier appel</span></button>
     <textarea class="diag-text" id="lastDiagText" readonly hidden aria-label="Diagnostic du dernier appel"></textarea>
@@ -153,6 +157,10 @@
       <button class="mic-btn" id="soundBtn" hidden>Toucher pour entendre</button>
       <!-- Mission 8 : prévient quand l'ami a coupé son micro -->
       <p class="mic-msg info" id="peerMute" role="status" hidden></p>
+      <!-- Mission 18 : l'ami a quitté son appli (l'appel peut se couper), ou un appel téléphonique interrompt le son -->
+      <p class="mic-msg info" id="peerAway" role="status" hidden></p>
+      <!-- Mission 18 : sur iPhone, l'appli est mise en pause dès qu'on la quitte -->
+      <p class="mic-msg info stay" id="stayMsg" hidden>Garde l'app ouverte pendant l'appel : si tu la quittes ou verrouilles l'écran, l'appel se coupe.</p>
     </div>
     <!-- Le haut-parleur caché qui joue la voix de l'ami -->
     <audio id="voice" autoplay playsinline></audio>
