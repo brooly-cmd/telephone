@@ -1,7 +1,7 @@
 // Le téléphone : écrans (mission 2), micro (mission 4), numéro perso (mission 5), appels (mission 6), voix (mission 7),
 // chrono et sourdine (mission 8), répertoire (mission 9), page installable (mission 10), notifications (mission 12),
 // prévenir l'ami par notification et rejoindre l'appel en la touchant (mission 13), sonneries (mission 14),
-// relais de voix et écran Diagnostic (mission 15).
+// relais de voix et écran Diagnostic (mission 15), historique des appels (mission 17).
 (function(){
   let typed = "";                  // ce qu'on tape sur le clavier
   let friend = "";                 // le code de l'ami en ligne avec nous (appelé ou appelant)
@@ -192,9 +192,9 @@
   }
   $("micBtn").addEventListener("click", () => micStream ? stopMic() : startMic());
 
-  // Passer d'un écran à l'autre (1 Accueil, 2 Ça sonne, 3 Entrant, 4 En cours, 5 Répertoire, 6 Fiche contact)
+  // Passer d'un écran à l'autre (1 Accueil, 2 Ça sonne, 3 Entrant, 4 En cours, 5 Répertoire, 6 Fiche contact, 7 Historique)
   function go(n){
-    for (let i=1;i<=6;i++) $("s"+i).hidden = i !== n;
+    for (let i=1;i<=7;i++) $("s"+i).hidden = i !== n;
     // Mission 9 : le nom de l'ami s'il est dans le répertoire, sinon son numéro
     const name = nameOf(friend);
     ["outCode","inCode","liveCode"].forEach(id => { $(id).textContent = name || fmt(friend); $(id).classList.toggle("name", !!name); });
@@ -222,6 +222,7 @@
 
   // ---------- Mission 9 : l'écran Répertoire et la fiche d'un contact ----------
   let editing = null;   // le contact qu'on modifie (null = on en ajoute un nouveau)
+  let formFromHist = false;   // mission 17 : fiche ouverte depuis l'historique (« Ajouter aux contacts ») : on y revient après
   function bookMessage(text){ $("bookMsg").textContent = text; $("bookMsg").hidden = !text; }
   function formMessage(text){ $("formMsg").textContent = text; $("formMsg").hidden = !text; }
   // Un petit bouton rond avec un dessin dedans
@@ -262,12 +263,14 @@
     });
   }
   function openBook(){ bookMessage(""); renderBook(); go(5); }
-  // Ouvre la fiche : vide pour un nouveau contact, remplie pour en modifier un
-  function openForm(c){
+  // Ouvre la fiche : vide pour un nouveau contact, remplie pour en modifier un.
+  // Mission 17 : depuis l'historique, la fiche d'un nouveau contact arrive avec le numéro déjà rempli.
+  function openForm(c, code, fromHist){
     editing = c || null;
+    formFromHist = !!fromHist;
     $("formTitle").textContent = c ? "Modifier le contact" : "Nouveau contact";
     $("fName").value = c ? c.nom : "";
-    $("fCode").value = c ? fmt(c.code) : "";
+    $("fCode").value = c ? fmt(c.code) : code ? fmt(code) : "";
     $("delBtn").hidden = !c;
     $("testBtn").hidden = !c;   // mission 12 : le test, seulement pour un contact déjà enregistré
     testMessage("");
@@ -279,7 +282,7 @@
   $("contactsBtn").addEventListener("click", openBook);
   $("backBtn").addEventListener("click", () => go(1));
   $("addBtn").addEventListener("click", () => openForm(null));
-  $("formBack").addEventListener("click", openBook);
+  $("formBack").addEventListener("click", () => formFromHist ? openHist() : openBook());
   // Enregistrer : on vérifie chaque case, et on explique ce qui ne va pas
   $("contactForm").addEventListener("submit", e => {
     e.preventDefault();
@@ -297,8 +300,9 @@
       book = before;
       return formMessage("Ce navigateur ne peut pas garder ton répertoire (navigation privée ?). Le contact n'est pas enregistré.");
     }
-    openBook();
-    bookMessage((editing ? "Contact modifié : " : "Contact ajouté : ") + nom + ".");
+    const said = (editing ? "Contact modifié : " : "Contact ajouté : ") + nom + ".";
+    if (formFromHist){ openHist(); histMessage(said); }   // mission 17 : retour à l'historique, où le nom remplace le numéro
+    else { openBook(); bookMessage(said); }
   });
   // Supprimer : on demande d'abord « Supprimer Noa ? »
   $("delBtn").addEventListener("click", () => {
@@ -323,7 +327,7 @@
   let conn = null;       // le fil direct avec l'ami pendant un appel
   let state = "idle";    // idle (libre), calling (ça sonne chez lui), ringing (ça sonne chez moi), live (en appel)
   let ringTimer = null, retryTimer = null;
-  const PAGE_VERSION = "16";   // mission 15 : écrit dans le diagnostic, pour savoir si l'ami a bien la dernière page
+  const PAGE_VERSION = "17";   // mission 15 : écrit dans le diagnostic, pour savoir si l'ami a bien la dernière page
   // Mission 15 : le badge du relais de voix (TURN), demandé à mon relais Cloudflare
   const turn = { servers: null, until: 0, pending: null, why: "pas encore demandé" };
   let joinedAt = 0;   // mission 15 (correctif) : l'heure où on a touché une notification d'appel
@@ -407,6 +411,7 @@
     if (state === "calling") send({ t: "annule" });
     else if (state === "ringing") send({ t: "refuse" });
     else if (state === "live") send({ t: "raccroche" });
+    logCall(state === "calling" ? "annule" : state === "ringing" ? "refuse" : "");   // mission 17 : noter l'appel avant de fermer
     playSound("");
     stopVoice();
     if (peer) peer.destroy();
@@ -683,6 +688,8 @@
     friend = code; typed = ""; renderDisplay();
     stopMic();             // si le test du micro tournait, on l'arrête
     state = "calling"; joining = !!join;
+    // Mission 17 : la ligne de l'historique. Rejoindre l'appel d'un ami = un appel entrant (sauf s'il faut le rappeler).
+    current = { code, sens: join ? "in" : "out", at: Date.now(), fin: "" };
     diagStart(join ? "je rejoins l'appel de" : "j'appelle");   // mission 15
     go(2);
     // Mission 7 : j'allume mon micro avant de faire sonner l'ami, pour que la voix passe dès qu'il décroche
@@ -723,7 +730,7 @@
       relay("/notifier", { de: MY, vers: code, type: "appel" }).then(n => { if (reach === r){ r.notif = n; showRing(); } });
     }
     // Personne ne décroche en 1 minute : on arrête
-    ringTimer = setTimeout(() => { send({ t: "annule" }); endCall("Pas de réponse au bout d'1 minute."); }, 60000);
+    ringTimer = setTimeout(() => { send({ t: "annule" }); outcome("pas_rep"); endCall("Pas de réponse au bout d'1 minute."); }, 60000);
   }
 
   // Quelqu'un m'appelle
@@ -748,6 +755,7 @@
       return;
     }
     friend = from;
+    current = { code: from, sens: "in", at: Date.now(), fin: "" };   // mission 17
     diagStart("appel reçu de");   // mission 15
     conn = c; wire(c);
     state = "ringing";
@@ -765,10 +773,11 @@
     else if (state === "calling" && d.t === "sonne" && joining){   // mission 13
       ringHint("L'appel était fini : tu rappelles " + who(friend) + ".");
       recall = true; sounds();   // mission 14 : c'est un vrai appel qui sonne chez lui : « tuuut… »
+      if (current) current.sens = "out";   // mission 17 : c'est moi qui rappelle
     }
-    else if (state === "calling" && d.t === "refuse") endCall("Appel refusé par " + who(friend) + ".");
+    else if (state === "calling" && d.t === "refuse"){ outcome("refuse_ami"); endCall("Appel refusé par " + who(friend) + "."); }
     else if (state === "calling" && d.t === "nomicro") endCall(Who(friend) + " a voulu décrocher, mais son micro ne marche pas.");
-    else if (state === "calling" && d.t === "occupe") endCall(Who(friend) + " est déjà en ligne avec quelqu'un. Réessaie plus tard.");
+    else if (state === "calling" && d.t === "occupe"){ outcome("occupe"); endCall(Who(friend) + " est déjà en ligne avec quelqu'un. Réessaie plus tard."); }
     else if (state === "ringing" && d.t === "annule") endCall("Appel manqué " + ofWho(friend) + ".");
     else if (state === "live" && d.t === "raccroche") endCall("Appel terminé.", true);
     else if (state === "live" && d.t === "chrono") startChrono();   // mission 8 : le « top ! » de l'ami
@@ -787,6 +796,7 @@
   function endCall(text, info){
     clearTimeout(ringTimer);
     callId++;
+    logCall();   // mission 17 : une ligne dans l'historique (avant que le chrono s'arrête, pour la durée)
     diagEnd(text);   // mission 15 : on garde le diagnostic de cet appel, copiable depuis l'accueil
     // Mission 8 : si on a parlé, on ajoute la durée : « Appel terminé (02:15). »
     if (startAt && text) text = text.replace(/\.$/, "") + " (" + clock() + ").";
@@ -800,8 +810,8 @@
   }
 
   // Les boutons des écrans d'appel
-  $("cancelBtn").addEventListener("click", () => { send({ t: "annule" }); endCall(""); });
-  $("refuseBtn").addEventListener("click", () => { closeCallNotif(); send({ t: "refuse" }); endCall(""); });
+  $("cancelBtn").addEventListener("click", () => { send({ t: "annule" }); outcome("annule"); endCall(""); });
+  $("refuseBtn").addEventListener("click", () => { closeCallNotif(); send({ t: "refuse" }); outcome("refuse"); endCall(""); });
   // Décrocher : j'allume mon micro (l'appui sur le bouton sert de « clé » sur iPhone), puis je tends le tuyau de son.
   // Mission 13 : aussi appelé tout seul quand on touche la notification pendant que ça sonne dans la page.
   $("answerBtn").addEventListener("click", () => answer());
@@ -830,6 +840,164 @@
     plugMedia(peer.call(PREFIX + friend, s));
   }
   $("hangBtn").addEventListener("click", () => { send({ t: "raccroche" }); endCall("Appel terminé.", true); });
+
+  // ---------- Mission 17 : l'historique des appels ----------
+  // Un carnet rangé dans le navigateur (localStorage « historique »), le plus récent en premier, 50 lignes maximum.
+  // Une ligne : { code, sens: "in" | "out", fin, at (heure du début), duree (secondes), vu (pour les manqués) }.
+  // fin : "ok" (on a parlé), "manque", "refuse" (j'ai refusé), et pour mes appels pas aboutis :
+  // "refuse_ami", "pas_rep", "occupe", "annule", "echec".
+  const HIST_MAX = 50;
+  let hist = [];
+  try { hist = JSON.parse(localStorage.getItem("historique") || "[]"); } catch(e){ hist = []; }
+  if (!Array.isArray(hist)) hist = [];
+  hist = hist.filter(h => h && /^[1-9]\d{5}$/.test(h.code) && typeof h.at === "number");
+  let current = null;   // l'appel en cours, qui deviendra une ligne à sa fin
+  function saveHist(){
+    hist.sort((a, b) => b.at - a.at);
+    hist = hist.slice(0, HIST_MAX);   // les plus vieux partent tout seuls
+    try { localStorage.setItem("historique", JSON.stringify(hist)); } catch(e){}
+    renderBadge();
+    if (!$("s7").hidden){ seeAll(); renderHist(); }
+  }
+  // Pourquoi l'appel n'a pas abouti (noté juste avant endCall)
+  function outcome(fin){ if (current) current.fin = fin; }
+  // Fin d'un appel : on écrit sa ligne. why = la raison quand on ferme la page en plein appel.
+  function logCall(why){
+    const c = current; current = null;
+    if (!c) return;
+    const h = { code: c.code, sens: c.sens, at: c.at, duree: 0, fin: "" };
+    if (state === "live"){ h.fin = "ok"; h.duree = startAt ? Math.floor((Date.now() - startAt) / 1000) : 0; }
+    else if (c.sens === "in") h.fin = (why || c.fin) === "refuse" ? "refuse" : "manque";
+    else h.fin = why || c.fin || "echec";
+    if (h.fin === "manque") h.vu = !$("s7").hidden;
+    hist.unshift(h);
+    saveHist();
+  }
+  // Le petit chiffre rouge sur « Historique » : les appels manqués pas encore vus
+  function renderBadge(){
+    const n = hist.filter(h => h.fin === "manque" && !h.vu).length;
+    $("missedBadge").textContent = n > 9 ? "9+" : n;
+    $("missedBadge").hidden = !n;
+    $("histBtn").setAttribute("aria-label", "Historique" + (n ? " (" + n + " appel" + (n > 1 ? "s" : "") + " manqué" + (n > 1 ? "s" : "") + ")" : ""));
+  }
+  function seeAll(){
+    if (!hist.some(h => h.fin === "manque" && !h.vu)) return;
+    hist.forEach(h => { if (h.fin === "manque") h.vu = true; });
+    try { localStorage.setItem("historique", JSON.stringify(hist)); } catch(e){}
+    renderBadge();
+  }
+  function histMessage(text){ $("histMsg").textContent = text; $("histMsg").hidden = !text; }
+  // « Aujourd'hui à 14:32 », « Hier à 09:10 », « lun. 6 oct. à 18:00 »
+  function when(t){
+    const d = new Date(t), now = new Date();
+    const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const days = Math.round((day(now) - day(d)) / 86400000);
+    const hm = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+    if (days === 0) return "Aujourd'hui à " + hm;
+    if (days === 1) return "Hier à " + hm;
+    return d.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" }) + " à " + hm;
+  }
+  const mmss = s => String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+  // Les petites flèches : ↙ reçu, ↗ émis, et un rond barré pour « refusé »
+  const ARROW_IN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 9v9h9"/></svg>';
+  const ARROW_OUT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 18 18 6M9 6h9v9"/></svg>';
+  const BLOCKED = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="m6.5 6.5 11 11"/></svg>';
+  const NOTES = { refuse_ami: "refusé", pas_rep: "pas de réponse", occupe: "occupé", annule: "annulé", echec: "pas abouti" };
+  function kindOf(h){
+    if (h.fin === "manque") return { svg: ARROW_IN, text: "Manqué", missed: true };
+    if (h.fin === "refuse") return { svg: BLOCKED, text: "Refusé" };
+    if (h.sens === "in") return { svg: ARROW_IN, text: "Entrant · " + mmss(h.duree || 0) };
+    if (h.fin === "ok") return { svg: ARROW_OUT, text: "Sortant · " + mmss(h.duree || 0) };
+    return { svg: ARROW_OUT, text: "Sortant · " + (NOTES[h.fin] || NOTES.echec) };
+  }
+  function renderHist(){
+    const ul = $("hist");
+    ul.innerHTML = "";
+    $("clearBtn").hidden = !hist.length;
+    if (!hist.length){
+      const li = document.createElement("li");
+      li.className = "empty";
+      li.textContent = "Aucun appel pour l'instant. Tes appels (passés, reçus, manqués) s'afficheront ici.";
+      ul.appendChild(li);
+      return;
+    }
+    hist.forEach(h => {
+      const k = kindOf(h), name = nameOf(h.code);
+      const li = document.createElement("li");
+      li.className = "card" + (k.missed ? " missed" : "");
+      // Toute la ligne (rond + nom + détails) est un bouton : la toucher rappelle
+      const main = document.createElement("button");
+      main.className = "hist-main";
+      main.setAttribute("aria-label", "Rappeler " + (name || fmt(h.code)) + " (" + k.text.replace(" · ", ", ") + ", " + when(h.at) + ")");
+      const av = document.createElement("div"); av.className = "avatar"; paintAvatar(av, h.code);
+      const info = document.createElement("div"); info.className = "who";
+      const nm = document.createElement("b"); nm.textContent = name || fmt(h.code);
+      if (!name) nm.className = "num";
+      const kind = document.createElement("span"); kind.className = "kind" + (k.missed ? " missed" : "");
+      kind.innerHTML = k.svg; kind.append(k.text);
+      const at = document.createElement("span"); at.className = "when"; at.textContent = when(h.at);
+      info.append(nm, kind, at);
+      main.append(av, info);
+      main.addEventListener("click", () => { go(1); startCall(h.code); });   // même chemin que le bouton Appeler
+      li.append(main);
+      if (!name) li.append(iconBtn("small", "Ajouter " + fmt(h.code) + " aux contacts",
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10" cy="8" r="4"/><path d="M2 21a8 8 0 0 1 13-6.2M19 14v6M16 17h6"/></svg>',
+        () => openForm(null, h.code, true)));
+      li.append(iconBtn("small", "Effacer cet appel",
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+        () => { hist = hist.filter(x => x !== h); saveHist(); histMessage(""); }));
+      ul.appendChild(li);
+    });
+  }
+  function openHist(){
+    histMessage(""); $("clearBox").hidden = true;
+    go(7); seeAll(); renderHist();
+    importMissed();   // au cas où le veilleur a noté un appel pendant que la page dormait
+  }
+  $("histBtn").addEventListener("click", openHist);
+  $("histBack").addEventListener("click", () => go(1));
+  $("clearBtn").addEventListener("click", () => { $("clearBox").hidden = false; $("clearBtn").hidden = true; });
+  $("noClear").addEventListener("click", () => { $("clearBox").hidden = true; $("clearBtn").hidden = !hist.length; });
+  $("yesClear").addEventListener("click", () => { hist = []; saveHist(); $("clearBox").hidden = true; histMessage("Historique effacé."); });
+
+  // Page fermée : le veilleur (sw.js) ne peut pas écrire dans le localStorage. À chaque notification d'appel,
+  // il range { de, at } dans le tiroir IndexedDB « telephone » (casier « recus »), comme un mot laissé sur la table.
+  // La page les range dans l'historique comme « manqués », sauf si l'appel est déjà noté (page ouverte qui a sonné,
+  // ou appel rejoint en touchant la notification : la page a écrit sa propre ligne).
+  // On attend 70 s après la notification : l'appel peut encore sonner ou être rejoint.
+  let importTimer = null;
+  function importMissed(){
+    clearTimeout(importTimer);
+    try {
+      const open = indexedDB.open("telephone", 1);
+      open.onupgradeneeded = () => open.result.createObjectStore("tiroir");
+      open.onsuccess = () => {
+        const db = open.result;
+        try {
+          const store = db.transaction("tiroir", "readwrite").objectStore("tiroir");
+          const get = store.get("recus");
+          get.onsuccess = () => {
+            const list = Array.isArray(get.result) ? get.result.filter(r => r && /^[1-9]\d{5}$/.test(r.de) && typeof r.at === "number") : [];
+            const now = Date.now();
+            const young = list.filter(r => now - r.at < 70000);
+            if (young.length) store.put(young, "recus"); else if (get.result) store.delete("recus");
+            db.close();
+            let added = false;
+            list.filter(r => now - r.at >= 70000).forEach(r => {
+              const known = hist.some(h => h.code === r.de && h.at > r.at - 90000 && h.at < r.at + 120000);
+              if (!known){ hist.push({ code: r.de, sens: "in", fin: "manque", at: r.at, duree: 0, vu: false }); added = true; }
+            });
+            if (added) saveHist();
+            if (young.length) importTimer = setTimeout(importMissed, 72000 - (now - Math.min(...young.map(r => r.at))));
+          };
+          get.onerror = () => db.close();
+        } catch(e){ db.close(); }
+      };
+    } catch(e){}
+  }
+  renderBadge();
+  importMissed();
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") importMissed(); });
 
   // ---------- Mission 15 : le relais de voix (TURN) ----------
   // Deux téléphones sur deux réseaux fermés (4G, box strictes) ne peuvent pas se parler directement :

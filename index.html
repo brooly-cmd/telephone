@@ -26,11 +26,19 @@
   <!-- Écran 1 : Accueil -->
   <section class="screen" id="s1">
     <div class="label head">Mon numéro <span class="net" id="net">Connexion…</span>
-      <!-- Mission 9 : ouvrir le répertoire -->
-      <button class="chip" id="contactsBtn">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
-        Contacts
-      </button>
+      <span class="chips">
+        <!-- Mission 17 : ouvrir l'historique (le petit chiffre rouge = appels manqués pas encore vus) -->
+        <button class="chip" id="histBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          Historique
+          <span class="badge num" id="missedBadge" hidden></span>
+        </button>
+        <!-- Mission 9 : ouvrir le répertoire -->
+        <button class="chip" id="contactsBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+          Contacts
+        </button>
+      </span>
     </div>
     <div class="mine">
       <span class="num" id="myCode">482 917</span>
@@ -227,6 +235,25 @@
         </div>
       </div>
     </form>
+  </section>
+
+  <!-- Écran 7 : Historique des appels (mission 17) -->
+  <section class="screen" id="s7" hidden>
+    <div class="bar">
+      <button class="mic-btn" id="histBack">← Retour</button>
+      <div class="label">Historique</div>
+      <button class="mic-btn" id="clearBtn">Tout effacer</button>
+    </div>
+    <!-- La question « Tu es sûr ? » avant de tout effacer -->
+    <div class="confirm wide-box" id="clearBox" hidden>
+      <p>Tout effacer ? Tu es sûr ?</p>
+      <div class="confirm-row">
+        <button class="mic-btn" id="noClear">Non</button>
+        <button class="mic-btn danger" id="yesClear">Oui, tout effacer</button>
+      </div>
+    </div>
+    <p class="mic-msg info" id="histMsg" role="status" hidden></p>
+    <ul class="book" id="hist"></ul>
   </section>
 </div>
 

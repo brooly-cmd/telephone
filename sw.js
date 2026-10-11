@@ -1,5 +1,6 @@
 // Le veilleur (service worker), mission 10 : il rend la page installable. Mission 12 : il reçoit les notifications.
 // Mission 13 : il écrit le nom de l'appelant (« Noa t'appelle ») et fait rejoindre l'appel quand on touche la notification.
+// Mission 17 : il note chaque appel reçu dans le tiroir, pour l'historique de la page.
 // Règle d'or : toujours la version fraîche d'internet. La copie rangée sert SEULEMENT quand il n'y a pas d'internet,
 // pour afficher la page (avec « Vérifie ta connexion internet ») au lieu d'un écran d'erreur.
 const RANGEMENT = "telephone-secours";
@@ -64,6 +65,32 @@ function nameFromBook(code){
   return Promise.race([look, new Promise(ok => setTimeout(() => ok(""), 2000))]);
 }
 
+// Mission 17 : noter « appel reçu de 482917 à telle heure » dans le tiroir IndexedDB (casier « recus »).
+// La page le rangera dans son historique comme « manqué », sauf si l'appel a été pris. 2 s maximum, pour ne jamais bloquer.
+function rememberCall(de){
+  const write = new Promise(ok => {
+    try {
+      const open = indexedDB.open("telephone", 1);
+      open.onupgradeneeded = () => open.result.createObjectStore("tiroir");
+      open.onerror = () => ok();
+      open.onsuccess = () => {
+        const db = open.result;
+        try {
+          const tx = db.transaction("tiroir", "readwrite"), store = tx.objectStore("tiroir");
+          const get = store.get("recus");
+          get.onsuccess = () => {
+            const list = Array.isArray(get.result) ? get.result : [];
+            list.push({ de, at: Date.now() });
+            store.put(list.slice(-50), "recus");
+          };
+          tx.oncomplete = tx.onerror = tx.onabort = () => { db.close(); ok(); };
+        } catch (err) { db.close(); ok(); }
+      };
+    } catch (err) { ok(); }
+  });
+  return Promise.race([write, new Promise(ok => setTimeout(ok, 2000))]);
+}
+
 self.addEventListener("push", e => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (err) {}
@@ -72,6 +99,7 @@ self.addEventListener("push", e => {
   const test = d.type === "test";
   e.waitUntil((async () => {
     const nom = ok ? await nameFromBook(d.de) : "";
+    if (ok && !test) await rememberCall(d.de);   // mission 17
     const qui = nom || (num ? "Le " + num : "");                 // « Noa » ou « Le 482 917 »
     const title = test ? "Notification test" : (qui ? qui + " t'appelle" : "Appel entrant");
     const body = test ? (qui ? "Envoyée par " + (nom || "le " + num) + ". Les notifications marchent !" : "Les notifications marchent !")
