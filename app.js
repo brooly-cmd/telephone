@@ -398,7 +398,7 @@
     }
     setNet("off");
     if (e.type === "unavailable-id"){
-      callMessage("Ton numéro est déjà utilisé : la page est sans doute ouverte dans un autre onglet ou une autre fenêtre. Ferme-la ; celle-ci réessaie toute seule.", false, true);
+      callMessage("Ton numéro est encore pris : la page vient sans doute d'être rouverte (le standardiste se souvient quelques instants de l'ancienne), ou elle est ouverte ailleurs. Elle réessaie toute seule.", false, true);
       retryLater();
     } else if (e.type === "browser-incompatible"){
       callMessage("Ce navigateur ne sait pas passer d'appels. Essaie avec Chrome, Edge, Firefox ou Safari à jour.");
@@ -930,7 +930,8 @@
   //    Sauf si l'ami a quitté l'appli : l'appel l'attend jusqu'à 5 min (« en attente »), et reprend s'il revient à temps.
   //    On regarde les deux : sur Android, la voix peut continuer même si la page dort (et alors, pas de coucou).
   const DEAD_MS = 10000, HOLD_MS = 5 * 60000;
-  let holdLeft = 0;   // l'ami est parti et on ne l'entend plus : secondes avant de couper (0 = pas en attente)
+  let holdLeft = 0;
+  let friendSilent = false;   // plus aucun son ne m'arrive de l'ami depuis 3 s (son iPhone coupe son micro quand il quitte l'app)   // l'ami est parti et on ne l'entend plus : secondes avant de couper (0 = pas en attente)
   let beat = null, lastPing = 0, lastTick = 0, graceUntil = 0, voiceSeen = { n: -1, at: 0 };
   let away = false, awayTimer = null;   // j'ai quitté l'appli pendant l'appel (téléphone seulement)
   let friendAway = false, friendCut = false, myCut = false;   // l'ami a quitté l'appli / son micro ou le mien interrompu
@@ -966,7 +967,8 @@
     if (state !== "live" || Date.now() < graceUntil) return;
     const quiet = Date.now() - Math.max(lastPing, voiceSeen.at);
     const left = friendAway && quiet > 4000 ? Math.max(0, Math.ceil((HOLD_MS - quiet) / 1000)) : 0;
-    if (left !== holdLeft){ holdLeft = left; peerAwayMsg(); }
+    const silent = Date.now() - voiceSeen.at > 3000;
+    if (left !== holdLeft || silent !== friendSilent){ holdLeft = left; friendSilent = silent; peerAwayMsg(); }
     if (quiet < (friendAway ? HOLD_MS : DEAD_MS)) return;
     diagLog("Plus de nouvelles de l'ami depuis " + Math.round(quiet / 1000) + " s : appel coupé");
     say({ t: "raccroche", coupe: true });
@@ -1000,6 +1002,7 @@
     const lines = [];
     const mmss = s => Math.floor(s / 60) + " min " + String(s % 60).padStart(2, "0") + " s";
     if (friendAway && holdLeft) lines.push(Who(friend) + " a quitté l'app : vous ne vous entendez plus. L'appel reprend dès son retour (coupé dans " + mmss(holdLeft) + ").");
+    else if (friendAway && (friendCut || friendSilent)) lines.push(Who(friend) + " a quitté l'app : tu ne l'entends plus jusqu'à son retour (son téléphone coupe son micro).");
     else if (friendAway) lines.push(Who(friend) + " a quitté l'app.");
     else if (friendCut) lines.push("Le micro " + ofWho(friend) + " est interrompu par son téléphone (appel en cours ?).");
     if (myCut) lines.push("Ton micro est interrompu par ton téléphone (appel en cours ?).");
