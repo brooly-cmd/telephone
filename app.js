@@ -1,6 +1,7 @@
 // Le téléphone : écrans (mission 2), micro (mission 4), numéro perso (mission 5), appels (mission 6), voix (mission 7),
 // chrono et sourdine (mission 8), répertoire (mission 9), page installable (mission 10), notifications (mission 12),
-// prévenir l'ami par notification et rejoindre l'appel en la touchant (mission 13), sonneries (mission 14).
+// prévenir l'ami par notification et rejoindre l'appel en la touchant (mission 13), sonneries (mission 14),
+// relais de voix et écran Diagnostic (mission 15).
 (function(){
   let typed = "";                  // ce qu'on tape sur le clavier
   let friend = "";                 // le code de l'ami en ligne avec nous (appelé ou appelant)
@@ -201,6 +202,7 @@
     if (n !== 4) stopChrono();
     else if (!startAt){ $("timer").textContent = "00:00"; $("timer").classList.add("wait"); }
     sounds();   // mission 14 : chaque écran a son son (ou son silence)
+    diagShow(n);   // mission 15
   }
 
   // Mission 8 : le chrono. Il démarre quand le son est connecté (pas avant), et on lit l'horloge
@@ -321,6 +323,9 @@
   let conn = null;       // le fil direct avec l'ami pendant un appel
   let state = "idle";    // idle (libre), calling (ça sonne chez lui), ringing (ça sonne chez moi), live (en appel)
   let ringTimer = null, retryTimer = null;
+  const PAGE_VERSION = "15";   // mission 15 : écrit dans le diagnostic, pour savoir si l'ami a bien la dernière page
+  // Mission 15 : le badge du relais de voix (TURN), demandé à mon relais Cloudflare
+  const turn = { servers: null, until: 0, pending: null, why: "pas encore demandé" };
 
   function callMessage(text, info){
     $("callMsg").textContent = text;
@@ -342,7 +347,7 @@
     }
     if (peer) peer.destroy();
     setNet("wait");
-    const p = peer = new Peer(PREFIX + MY);
+    const p = peer = new Peer(PREFIX + MY, turn.servers ? { config: iceConfig() } : {});   // mission 15 : avec le relais de voix
     p.on("open", () => {
       if (p !== peer) return;
       setNet("on");
@@ -369,6 +374,7 @@
   }
   function onPeerError(p, e){
     if (p !== peer) return;
+    diagLog("Standardiste : " + e.type);   // mission 15
     if (e.type === "peer-unavailable"){   // l'ami n'a pas la page ouverte
       if (state !== "calling") return;
       // Mission 13 : en rejoignant depuis une notification, l'appelant n'est plus là : appel manqué.
@@ -415,7 +421,8 @@
   function wire(c){
     c.on("data", d => { if (c === conn) onData(d); });
     c.on("close", () => { if (c === conn) lineCut(); });
-    c.on("error", () => { if (c === conn) lineCut(); });
+    c.on("error", e => { if (c === conn){ diagLog("Erreur des messages : " + (e && e.type || e)); lineCut(); } });
+    diagWatch(c.peerConnection, "Chemin des messages");   // mission 15
   }
 
   // ---------- Mission 7 : la voix dans les deux sens ----------
@@ -445,6 +452,8 @@
   function plugMedia(mc){
     media = mc;
     soundState("Connexion du son…");
+    diagLog("Branchement du son");                     // mission 15
+    diagWatch(mc.peerConnection, "Chemin du son");
     mc.on("stream", remote => {
       if (mc !== media) return;
       if ($("voice").srcObject !== remote) $("voice").srcObject = remote;
@@ -456,7 +465,10 @@
       check();
     });
     mc.on("close", () => { if (mc === media && state === "live") endCall("L'appel a été coupé."); });
-    mc.on("error", () => { if (mc === media && state === "live") endCall("Le son n'a pas pu passer. Réessaie."); });
+    mc.on("error", e => {
+      if (mc === media) diagLog("Erreur du son : " + (e && e.type || e));   // mission 15
+      if (mc === media && state === "live") endCall("Le son n'a pas pu passer. Réessaie.");
+    });
   }
   // Certains téléphones bloquent le son tant qu'on n'a pas touché l'écran : on affiche alors un bouton
   function playVoice(){
@@ -670,6 +682,7 @@
     friend = code; typed = ""; renderDisplay();
     stopMic();             // si le test du micro tournait, on l'arrête
     state = "calling"; joining = !!join;
+    diagStart(join ? "je rejoins l'appel de" : "j'appelle");   // mission 15
     go(2);
     // Mission 7 : j'allume mon micro avant de faire sonner l'ami, pour que la voix passe dès qu'il décroche
     const attempt = callId;
@@ -688,6 +701,7 @@
     }
     if (attempt !== callId){ s.getTracks().forEach(t => t.stop()); return; }   // appel annulé pendant la question du micro
     callStream = s;
+    diagLog("Micro autorisé");   // mission 15
     sounds();   // mission 14 : micro accepté, ça sonne chez l'ami : « tuuut… » chez moi
     if (join){
       $("outStatus").textContent = "Connexion…";
@@ -695,6 +709,8 @@
       await peerReady(20000);   // la page vient de s'ouvrir : le standardiste met parfois quelques secondes
       if (attempt !== callId) return;
     } else ringHint("");
+    await turnReady(4000);   // mission 15 : le badge du relais de voix (déjà là en général, demandé à l'ouverture)
+    if (attempt !== callId) return;
     if (!peer || !peer.open){ endCall("La ligne avec le standardiste vient de se couper. Attends « En ligne », puis réessaie."); return; }
     const c = conn = peer.connect(PREFIX + code, { reliable: true });
     wire(c);
@@ -720,6 +736,7 @@
       if (old) old.close();
       clearTimeout(ringTimer);
       reach = null;
+      diagLog("L'ami a rejoint par la notification");   // mission 15
       state = "live"; go(4);
       send({ t: "decroche" });
       plugMedia(peer.call(PREFIX + friend, callStream));
@@ -729,8 +746,9 @@
       c.on("open", () => { c.send({ t: "occupe" }); setTimeout(() => c.close(), 1000); });
       return;
     }
-    conn = c; wire(c);
     friend = from;
+    diagStart("appel reçu de");   // mission 15
+    conn = c; wire(c);
     state = "ringing";
     callMessage("");
     send({ t: "sonne" });   // mission 13 : dit à un ami qui rejoint trop tard que c'est un nouvel appel qui sonne
@@ -742,7 +760,7 @@
   // Les petits messages échangés entre les deux pages
   function onData(d){
     if (!d || typeof d.t !== "string") return;
-    if (state === "calling" && d.t === "decroche"){ clearTimeout(ringTimer); state = "live"; go(4); }
+    if (state === "calling" && d.t === "decroche"){ clearTimeout(ringTimer); diagLog("L'ami a décroché"); state = "live"; go(4); }
     else if (state === "calling" && d.t === "sonne" && joining){   // mission 13
       ringHint("L'appel était fini : tu rappelles " + who(friend) + ".");
       recall = true; sounds();   // mission 14 : c'est un vrai appel qui sonne chez lui : « tuuut… »
@@ -768,6 +786,7 @@
   function endCall(text, info){
     clearTimeout(ringTimer);
     callId++;
+    diagEnd(text);   // mission 15 : on garde le diagnostic de cet appel, copiable depuis l'accueil
     // Mission 8 : si on a parlé, on ajoute la durée : « Appel terminé (02:15). »
     if (startAt && text) text = text.replace(/\.$/, "") + " (" + clock() + ").";
     stopVoice();   // mission 7 : le micro s'éteint dès que l'appel se termine, quelle qu'en soit la raison
@@ -799,6 +818,8 @@
       if (attempt === callId){ send({ t: "nomicro" }); endCall(micError(e)); }
       return;
     }
+    diagLog("Micro autorisé, je décroche");   // mission 15
+    await turnReady(3000);                      // mission 15 : le badge du relais de voix (déjà là en général)
     $("answerBtn").disabled = false;
     if (attempt !== callId){ s.getTracks().forEach(t => t.stop()); return; }   // l'appelant a abandonné pendant la question du micro
     if (!peer || !peer.open){ s.getTracks().forEach(t => t.stop()); send({ t: "nomicro" }); endCall("La ligne avec le standardiste est coupée. Réessaie dans un instant."); return; }
@@ -808,6 +829,231 @@
     plugMedia(peer.call(PREFIX + friend, s));
   }
   $("hangBtn").addEventListener("click", () => { send({ t: "raccroche" }); endCall("Appel terminé.", true); });
+
+  // ---------- Mission 15 : le relais de voix (TURN) ----------
+  // Deux téléphones sur deux réseaux fermés (4G, box strictes) ne peuvent pas se parler directement :
+  // la voix passe alors par le relais de voix de Cloudflare, comme par un bureau de poste.
+  // Pour y entrer, il faut un badge (identifiants valables 6 h) : c'est mon relais qui le fabrique,
+  // avec la clé rangée dans son coffre. La page ne contient aucune clé.
+  function iceConfig(){
+    return { iceServers: [{ urls: "stun:stun.l.google.com:19302" }].concat(turn.servers), sdpSemantics: "unified-plan" };
+  }
+  function loadTurn(){
+    if (turn.servers && Date.now() < turn.until - 30*60*1000) return Promise.resolve();   // badge encore bon au moins 30 min
+    if (!turn.pending) turn.pending = relay("/turn", {}).then(r => {
+      turn.pending = null;
+      if (r.ok && Array.isArray(r.iceServers) && r.iceServers.length){
+        turn.servers = r.iceServers; turn.until = Date.now() + (r.duree || 3600) * 1000; turn.why = "";
+        if (peer) peer.options.config = iceConfig();   // PeerJS relit cette liste à chaque nouvel appel
+      } else turn.why = r.message || r.erreur || "pas de réponse";
+    });
+    return turn.pending;
+  }
+  // Avant un appel : on attend le badge quelques secondes au plus (sinon on appelle quand même, sans relais de voix)
+  const turnReady = ms => Promise.race([loadTurn(), new Promise(ok => setTimeout(ok, ms))]);
+
+  // ---------- Mission 15 : l'écran Diagnostic ----------
+  // Pendant un appel, la page note chaque seconde ce que dit le « tableau de bord » de WebRTC (getStats) :
+  // par où passe la voix, si mon micro envoie du son, si celui de l'ami arrive. Aucune adresse IP n'est notée.
+  let diag = null;        // le carnet de l'appel en cours
+  let lastReport = "";    // le diagnostic du dernier appel, copiable depuis l'accueil
+  let diagOpen = false;
+  try { diagOpen = localStorage.getItem("diagOuvert") === "1"; } catch(e){}
+  const ICE_FR = { "new": "pas commencée", checking: "recherche du chemin…", connected: "connectée", completed: "connectée",
+    disconnected: "coupure (elle essaie de revenir…)", failed: "échec : aucun chemin trouvé", closed: "fermée" };
+  const since = t => { const s = Math.max(0, Math.round((Date.now() - t) / 1000)); return String(Math.floor(s/60)).padStart(2,"0") + ":" + String(s%60).padStart(2,"0"); };
+  function diagLog(text){
+    if (!diag) return;
+    diag.log.push(since(diag.t0) + " " + text);
+    if (diag.log.length > 60) diag.log.splice(1, 1);   // on garde la 1re ligne et les plus récentes
+  }
+  function diagStart(role){
+    clearInterval(diag && diag.timer);
+    diag = { t0: Date.now(), role, log: [], seen: {}, now: {}, before: {}, timer: null };
+    diagLog("Début : " + role + " " + fmt(friend));
+    diagLog("Relais de voix : " + (turn.servers ? "prêt" : "pas disponible (" + turn.why + ")"));
+    $("lastDiagBtn").hidden = $("lastDiagText").hidden = $("diagText").hidden = true;
+    diag.timer = setInterval(diagSample, 1000);
+    diagPaint();
+  }
+  // Écouter les changements d'état d'un « chemin » WebRTC (celui du son, ou celui des petits messages)
+  function diagWatch(pc, what){
+    if (!pc) return;
+    pc.addEventListener("iceconnectionstatechange", () => diagLog(what + " : " + (ICE_FR[pc.iceConnectionState] || pc.iceConnectionState)));
+  }
+  // Le niveau sonore d'une seconde (0 = silence, 1 = très fort), à partir de l'énergie du son
+  function level(now, before){
+    if (!now) return null;
+    if (before && now.totalAudioEnergy != null && before.totalAudioEnergy != null && now.totalSamplesDuration > before.totalSamplesDuration)
+      return Math.sqrt(Math.max(0, now.totalAudioEnergy - before.totalAudioEnergy) / (now.totalSamplesDuration - before.totalSamplesDuration));
+    return typeof now.audioLevel === "number" ? now.audioLevel : null;
+  }
+  const perSecond = (now, before, key, dt) => now && before && now[key] != null && before[key] != null && dt > 0 ? (now[key] - before[key]) / dt : null;
+  async function diagSample(){
+    const d = diag; if (!d) return;
+    const pc = media && media.peerConnection, pcMsg = conn && conn.peerConnection;
+    const n = { at: Date.now(), sound: !!pc, ice: pc ? pc.iceConnectionState : "", msgIce: pcMsg ? pcMsg.iceConnectionState : "" };
+    const target = pc || pcMsg;
+    if (target){
+      let stats = null; try { stats = await target.getStats(); } catch(e){}
+      if (d !== diag) return;
+      try { n.turnUsed = target.getConfiguration().iceServers.some(s => [].concat(s.urls).some(u => /^turns?:turn\.cloudflare\.com/.test(u))); } catch(e){}
+      if (stats){
+        const byId = new Map(); stats.forEach(r => byId.set(r.id, r));
+        let pair = null;
+        stats.forEach(r => { if (r.type === "transport" && r.selectedCandidatePairId) pair = byId.get(r.selectedCandidatePairId); });
+        if (!pair) stats.forEach(r => { if (r.type === "candidate-pair" && (r.selected || (r.nominated && r.state === "succeeded"))) pair = r; });
+        const lc = pair && byId.get(pair.localCandidateId), rc = pair && byId.get(pair.remoteCandidateId);
+        if (lc && rc){ n.mine = lc.candidateType; n.theirs = rc.candidateType; n.proto = lc.relayProtocol || lc.protocol || ""; }
+        n.found = {};
+        stats.forEach(r => {
+          if (r.type === "local-candidate") n.found[r.candidateType] = (n.found[r.candidateType] || 0) + 1;
+          const kind = r.kind || r.mediaType;
+          if (kind !== "audio") return;
+          if (r.type === "outbound-rtp") n.out = r;
+          if (r.type === "inbound-rtp") n.in = r;
+          if (r.type === "media-source") n.src = r;
+        });
+      }
+    }
+    const b = d.now, dt = b.at ? (n.at - b.at) / 1000 : 0;
+    n.sentRate = perSecond(n.out, b.out, "packetsSent", dt);
+    n.recvRate = perSecond(n.in, b.in, "packetsReceived", dt);
+    n.micLevel = level(n.src, b.src);
+    n.recvLevel = level(n.in, b.in);
+    d.before = b; d.now = n;
+    diagPaint();
+  }
+  // Traduire les mesures en phrases simples
+  function diagWords(){
+    const n = (diag && diag.now) || {};
+    const w = {};
+    const kind = { host: "réseau local", srflx: "internet", prflx: "internet", relay: "relais" };
+    if (n.mine && n.theirs){
+      if (n.mine === "relay" || n.theirs === "relay")
+        w.path = "Par le relais de voix (" + (n.mine === "relay" && n.theirs === "relay" ? "des deux côtés" : n.mine === "relay" ? "de mon côté" : "du côté de l'ami") + ", " + n.proto + ")";
+      else w.path = n.mine === "host" && n.theirs === "host" ? "Directe (même réseau)" : "Directe (par internet, " + n.proto + ")";
+      w.pathCode = n.mine + "/" + n.theirs + " (" + (kind[n.mine] || n.mine) + " / " + (kind[n.theirs] || n.theirs) + ")";
+    } else w.path = n.sound || n.msgIce ? "Pas encore trouvée" : "Pas encore commencée";
+    w.state = n.sound ? "Son : " + (ICE_FR[n.ice] || n.ice || "—") : n.msgIce ? "Messages : " + (ICE_FR[n.msgIce] || n.msgIce) + " (le son n'est pas encore branché)" : "En attente de l'ami";
+    const track = callStream && callStream.getAudioTracks()[0];
+    const pathOk = n.ice === "connected" || n.ice === "completed" || n.ice === "disconnected";
+    if (!track) w.mic = "Non : micro pas encore ouvert";
+    else if (track.readyState === "ended") w.mic = "Non : le micro s'est arrêté";
+    else if (!track.enabled) w.mic = "Non : micro coupé (bouton « Couper le micro »)";
+    else if (track.muted) w.mic = "Non : le téléphone bloque le micro (autre appli ? appel téléphonique en cours ?)";
+    else if (!n.sound) w.mic = "Pas encore : le son n'est pas branché";
+    else if (n.ice === "failed") w.mic = "Non : aucun chemin vers l'ami";
+    else if (!pathOk) w.mic = "Pas encore : chemin pas encore trouvé";
+    else if (n.sentRate == null) w.mic = "Mesure en cours…";
+    else if (n.sentRate > 0) w.mic = "Oui";
+    else w.mic = "Non : rien ne part";
+    w.micOk = w.mic === "Oui";
+    const rt = $("voice").srcObject && $("voice").srcObject.getAudioTracks()[0];
+    if (!n.sound) w.recv = "Pas encore : le son n'est pas branché";
+    else if (n.ice === "failed") w.recv = "Non : aucun chemin depuis l'ami";
+    else if (!pathOk) w.recv = "Pas encore : chemin pas encore trouvé";
+    else if (n.recvRate == null) w.recv = "Mesure en cours…";
+    else if (n.recvRate > 0) w.recv = $("voice").paused ? "Arrive, mais le lecteur est bloqué (bouton « Toucher pour entendre »)" : "Oui";
+    else w.recv = "Non : rien n'arrive";
+    w.recvOk = w.recv === "Oui";
+    if (rt && rt.muted && n.recvRate > 0) w.recv += " (piste muette)";
+    const f = n.found || {};
+    w.turn = turn.servers ? "Prêt (Cloudflare)" : "Pas disponible : " + turn.why;
+    if (n.sound || n.msgIce){
+      if (n.turnUsed === false) w.turn += turn.servers ? " · pas utilisé pour cet appel (badge arrivé trop tard)" : "";
+      else if (n.turnUsed && n.found) w.turn += f.relay ? " · joignable (" + f.relay + " chemin" + (f.relay > 1 ? "s" : "") + ")" : " · pas joignable d'ici pour l'instant";
+    }
+    return w;
+  }
+  function diagPaint(){
+    if (!diag) return;
+    const w = diagWords(), n = diag.now;
+    // On note dans le journal chaque changement important (panneau ouvert ou non)
+    const seen = diag.seen;
+    [["path", "Connexion"], ["mic", "Mon micro envoyé"], ["recv", "Son reçu"]].forEach(([k, label]) => {
+      if (seen[k] !== w[k]){ seen[k] = w[k]; diagLog(label + " : " + w[k]); }
+    });
+    if ($("diag").hidden) return;
+    $("dgPath").textContent = w.path;
+    $("dgState").textContent = w.state;
+    $("dgMic").textContent = w.mic; $("dgMic").className = w.micOk ? "ok" : "";
+    $("dgRecv").textContent = w.recv; $("dgRecv").className = w.recvOk ? "ok" : "";
+    $("dgTurn").textContent = w.turn;
+    const bar = v => Math.round(Math.min(1, (v || 0) * 4) * 100) + "%";   // amplifié pour qu'une voix normale remplisse la barre
+    $("dgMicLvl").style.width = bar(n.micLevel);
+    $("dgRecvLvl").style.width = bar(n.recvLevel);
+  }
+  // Le texte à copier et à envoyer
+  function deviceName(){
+    const u = navigator.userAgent, v = re => (u.match(re) || [])[1];
+    const os = ios ? "iPhone/iPad iOS " + (v(/OS (\d+_\d+)/) || "?").replace("_", ".")
+      : /Android/.test(u) ? "Android " + (v(/Android ([\d.]+)/) || "") + (v(/; ([^;)]+) Build/) ? " (" + v(/; ([^;)]+) Build/) + ")" : "")
+      : /Windows/.test(u) ? "PC Windows" : /Mac/.test(u) ? "Mac" : "autre";
+    const browsers = [[/SamsungBrowser\/(\d+)/, "Samsung Internet"], [/EdgA?\/(\d+)/, "Edge"], [/OPR\/(\d+)/, "Opera"],
+      [/(?:Firefox|FxiOS)\/(\d+)/, "Firefox"], [/(?:CriOS|Chrome)\/(\d+)/, "Chrome"], [/Version\/(\d+).*Safari/, "Safari"]];
+    const br = browsers.find(([re]) => re.test(u));
+    return os + " · " + (br ? br[1] + " " + v(br[0]) : "navigateur inconnu") + " · " + (installed ? "appli installée" : "dans le navigateur");
+  }
+  function diagText(){
+    if (!diag) return lastReport;
+    const w = diagWords(), n = diag.now, pct = v => v == null ? "?" : Math.round(v * 100) + " %";
+    const f = n.found || {};
+    return [
+      "Diagnostic Lumexa Telephone (page version " + PAGE_VERSION + ")",
+      new Date().toLocaleString("fr-FR"),
+      "Appareil : " + deviceName(),
+      "Rôle : " + diag.role,
+      "Connexion : " + w.path + (w.pathCode ? " [" + w.pathCode + "]" : ""),
+      "État : " + w.state + (n.sound && n.msgIce ? " · messages : " + (ICE_FR[n.msgIce] || n.msgIce) : ""),
+      "Mon micro envoyé : " + w.mic + " · " + (n.sentRate == null ? "?" : Math.round(n.sentRate)) + " paquets/s · niveau " + pct(n.micLevel),
+      "Son reçu : " + w.recv + " · " + (n.recvRate == null ? "?" : Math.round(n.recvRate)) + " paquets/s · niveau " + pct(n.recvLevel),
+      "Relais de voix : " + w.turn,
+      "Chemins essayés de mon côté : direct " + ((f.host || 0) + (f.srflx || 0) + (f.prflx || 0)) + " (local " + (f.host || 0) + ", internet " + ((f.srflx || 0) + (f.prflx || 0)) + "), relais " + (f.relay || 0),
+      "Journal :",
+    ].concat(diag.log.map(l => "  " + l)).join("\n");
+  }
+  function diagEnd(text){
+    if (!diag) return;
+    diagLog("Fin : " + (text || "appel arrêté"));
+    lastReport = diagText();
+    clearInterval(diag.timer);
+    diag = null;
+    $("lastDiagBtn").hidden = false;
+  }
+  // Le bouton « Diagnostic » et le panneau, seulement sur les écrans « Ça sonne » (2) et « En appel » (4)
+  function diagShow(n){
+    const onCall = n === 2 || n === 4;
+    $("diagBtn").hidden = !onCall || diagOpen;
+    $("diag").hidden = !onCall || !diagOpen;
+    diagPaint();
+  }
+  function setDiagOpen(on){
+    diagOpen = on;
+    try { localStorage.setItem("diagOuvert", on ? "1" : "0"); } catch(e){}
+    diagShow($("s2").hidden ? ($("s4").hidden ? 0 : 4) : 2);
+  }
+  $("diagBtn").addEventListener("click", () => setDiagOpen(true));
+  $("diagClose").addEventListener("click", () => setDiagOpen(false));
+  // Copier : le presse-papiers moderne, sinon l'ancienne méthode, sinon on affiche le texte à copier à la main
+  async function copyReport(btn, text, area){
+    const label = btn.querySelector("span"), was = label.textContent;
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; }
+    catch(e){
+      const t = document.createElement("textarea");
+      t.value = text; t.readOnly = true; t.style.position = "fixed"; t.style.opacity = "0";
+      document.body.appendChild(t); t.select(); t.setSelectionRange(0, text.length);
+      try { ok = document.execCommand("copy"); } catch(e2){}
+      t.remove();
+    }
+    if (!ok){ $(area).value = text; $(area).hidden = false; $(area).select(); }
+    label.textContent = ok ? "Copié ✓ (colle-le dans un message)" : "Copie impossible : sélectionne le texte ci-dessous";
+    btn.classList.toggle("ok", ok);
+    setTimeout(() => { label.textContent = was; btn.classList.remove("ok"); }, 2500);
+  }
+  $("diagCopy").addEventListener("click", () => copyReport($("diagCopy"), diagText(), "diagText"));
+  $("lastDiagBtn").addEventListener("click", () => copyReport($("lastDiagBtn"), lastReport, "lastDiagText"));
 
   go(1);
   startPeer();
@@ -1029,4 +1275,8 @@
     history.replaceState(null, "", location.pathname);
     joinFromNotif(askedJoin);
   }
+
+  // Mission 15 : demander le badge du relais de voix dès l'ouverture, et le renouveler au retour sur la page s'il est vieux
+  loadTurn();
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") loadTurn(); });
 })();

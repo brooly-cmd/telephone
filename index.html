@@ -73,6 +73,9 @@
     <p class="mic-msg" id="notifMsg" role="status" hidden></p>
     <!-- Mission 6 : messages du standardiste et des appels (refusé, pas connecté…) -->
     <p class="mic-msg" id="callMsg" role="status" hidden></p>
+    <!-- Mission 15 : après un appel, copier son diagnostic pour l'envoyer -->
+    <button class="mic-btn diag-last" id="lastDiagBtn" hidden><span>Copier le diagnostic du dernier appel</span></button>
+    <textarea class="diag-text" id="lastDiagText" readonly hidden aria-label="Diagnostic du dernier appel"></textarea>
     <!-- Les chiffres tapés. La case invisible par-dessus sert seulement à « Coller » un code (appui long sur téléphone). -->
     <div class="display-wrap">
       <div class="display num" id="display" aria-live="polite"></div>
@@ -151,6 +154,27 @@
       </div>
     </div>
   </section>
+
+  <!-- Mission 15 : le bouton « Diagnostic » et son panneau, pendant « Ça sonne » et « En appel » -->
+  <button class="chip diag-btn" id="diagBtn" hidden>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>
+    Diagnostic
+  </button>
+  <div class="diag" id="diag" role="region" aria-label="Diagnostic de l'appel" hidden>
+    <div class="diag-head">
+      <span class="label">Diagnostic</span>
+      <button class="mic-btn" id="diagClose">Fermer</button>
+    </div>
+    <dl class="diag-rows">
+      <dt>Connexion</dt><dd id="dgPath">—</dd>
+      <dt>État</dt><dd id="dgState">—</dd>
+      <dt>Mon micro envoyé</dt><dd><span id="dgMic">—</span><div class="meter"><div class="meter-fill" id="dgMicLvl"></div></div></dd>
+      <dt>Son reçu de l'ami</dt><dd><span id="dgRecv">—</span><div class="meter"><div class="meter-fill" id="dgRecvLvl"></div></div></dd>
+      <dt>Relais de voix</dt><dd id="dgTurn">—</dd>
+    </dl>
+    <button class="mic-btn diag-copy" id="diagCopy"><span>Copier le diagnostic</span></button>
+    <textarea class="diag-text" id="diagText" readonly hidden aria-label="Texte du diagnostic"></textarea>
+  </div>
 
   <!-- Écran 5 : Répertoire (mission 9) -->
   <section class="screen" id="s5" hidden>
