@@ -323,9 +323,10 @@
   let conn = null;       // le fil direct avec l'ami pendant un appel
   let state = "idle";    // idle (libre), calling (ça sonne chez lui), ringing (ça sonne chez moi), live (en appel)
   let ringTimer = null, retryTimer = null;
-  const PAGE_VERSION = "15";   // mission 15 : écrit dans le diagnostic, pour savoir si l'ami a bien la dernière page
+  const PAGE_VERSION = "15.1";   // mission 15 : écrit dans le diagnostic, pour savoir si l'ami a bien la dernière page
   // Mission 15 : le badge du relais de voix (TURN), demandé à mon relais Cloudflare
   const turn = { servers: null, until: 0, pending: null, why: "pas encore demandé" };
+  let joinedAt = 0;   // mission 15 (correctif) : l'heure où on a touché une notification d'appel
 
   function callMessage(text, info){
     $("callMsg").textContent = text;
@@ -1090,7 +1091,8 @@
   }
   let myVersion = "";
   versionTag().then(v => { myVersion = v; }).catch(() => {});
-  const isFree = () => state === "idle" && !$("s1").hidden && document.visibilityState === "visible";
+  const isFree = () => state === "idle" && !$("s1").hidden && document.visibilityState === "visible"
+    && Date.now() - joinedAt > 20000;   // mission 15 (correctif) : jamais juste après avoir touché une notification d'appel
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible" || !myVersion) return;
     setTimeout(async () => {
@@ -1264,7 +1266,7 @@
   if ("serviceWorker" in navigator){
     navigator.serviceWorker.addEventListener("message", e => {
       const d = e.data || {};
-      if (d.t === "rejoindre") joinFromNotif(String(d.de));
+      if (d.t === "rejoindre"){ joinedAt = Date.now(); takePendingJoin(); joinFromNotif(String(d.de)); }
     });
     navigator.serviceWorker.startMessages();
   }
@@ -1273,8 +1275,47 @@
   const askedJoin = new URLSearchParams(location.search).get("appel");
   if (askedJoin !== null){
     history.replaceState(null, "", location.pathname);
+    joinedAt = Date.now(); takePendingJoin();
     joinFromNotif(askedJoin);
   }
+
+  // Mission 15 (correctif iPhone) : l'appli endormie en arrière-plan peut perdre le petit mot du veilleur
+  // (l'iPhone la réveille ou la recharge au même moment). Le veilleur écrit donc aussi « rejoindre 482917 »
+  // dans le tiroir IndexedDB, comme un post-it dans la boîte aux lettres : la page le lit (et le jette)
+  // à chaque ouverture et à chaque retour. Un post-it de plus de 70 s est trop vieux : on l'ignore.
+  function takePendingJoin(){
+    return new Promise(ok => {
+      try {
+        const open = indexedDB.open("telephone", 1);
+        open.onupgradeneeded = () => open.result.createObjectStore("tiroir");
+        open.onerror = () => ok(null);
+        open.onsuccess = () => {
+          const db = open.result;
+          try {
+            const store = db.transaction("tiroir", "readwrite").objectStore("tiroir");
+            const get = store.get("rejoindre");
+            get.onsuccess = () => {
+              const r = get.result;
+              if (r) store.delete("rejoindre");
+              db.close();
+              ok(r && Date.now() - r.at < 70000 ? String(r.de) : null);
+            };
+            get.onerror = () => { db.close(); ok(null); };
+          } catch(e){ db.close(); ok(null); }
+        };
+      } catch(e){ ok(null); }
+    });
+  }
+  async function checkPendingJoin(){
+    const code = await takePendingJoin();
+    if (code){ joinedAt = Date.now(); joinFromNotif(code); }
+  }
+  if (askedJoin === null) checkPendingJoin();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    checkPendingJoin();
+    setTimeout(checkPendingJoin, 1500);   // au cas où le veilleur écrit son post-it juste après le réveil
+  });
 
   // Mission 15 : demander le badge du relais de voix dès l'ouverture, et le renouveler au retour sur la page s'il est vieux
   loadTurn();

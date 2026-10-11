@@ -88,6 +88,27 @@ self.addEventListener("push", e => {
   })());
 });
 
+// Mission 15 (correctif iPhone) : le « post-it » { de, at } rangé dans le tiroir IndexedDB, que la page lit à son réveil
+// (le petit mot glissé à une appli endormie peut se perdre). 2 s maximum, pour ne jamais bloquer.
+function rememberJoin(de){
+  const write = new Promise(ok => {
+    try {
+      const open = indexedDB.open("telephone", 1);
+      open.onupgradeneeded = () => open.result.createObjectStore("tiroir");
+      open.onerror = () => ok();
+      open.onsuccess = () => {
+        const db = open.result;
+        try {
+          const tx = db.transaction("tiroir", "readwrite");
+          tx.objectStore("tiroir").put({ de, at: Date.now() }, "rejoindre");
+          tx.oncomplete = tx.onerror = tx.onabort = () => { db.close(); ok(); };
+        } catch (err) { db.close(); ok(); }
+      };
+    } catch (err) { ok(); }
+  });
+  return Promise.race([write, new Promise(ok => setTimeout(ok, 2000))]);
+}
+
 // Toucher la notification : on remet la page devant si elle est ouverte, sinon on l'ouvre.
 // Mission 13 : pour un appel, la page rejoint l'appel tout de suite (ou rappelle si c'est déjà fini).
 self.addEventListener("notificationclick", e => {
@@ -95,6 +116,7 @@ self.addEventListener("notificationclick", e => {
   const d = e.notification.data || {};
   const appel = d.type === "appel" && /^[1-9]\d{5}$/.test(d.de);
   e.waitUntil((async () => {
+    if (appel) await rememberJoin(d.de);   // mission 15 : le post-it d'abord, avant de réveiller la page
     const pages = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     const mine = pages.find(p => p.url.startsWith(self.registration.scope));
     if (mine){
