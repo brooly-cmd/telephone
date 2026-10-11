@@ -56,6 +56,15 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
 /* Mission 10 : l'aide « installer sur iPhone », texte à gauche et bouton Compris à droite */
 .ios-help{display:flex;align-items:center;gap:10px}
 .ios-help p{margin:0;flex:1;min-width:0}
+/* Mission 16 : l'aide « installer sur Android » : texte (ou bouton vert) puis l'avertissement « même navigateur » */
+.install-row{display:flex;align-items:center;gap:10px}
+.install-row p{margin:0;flex:1;min-width:0}
+.install-help .mic-btn.go{color:#fff;border-color:var(--go)}
+.install-warn{margin:6px 0 0;font-weight:700;color:var(--muted)}
+/* Mission 16 : quand il y a beaucoup de messages (petit écran + barres du navigateur), le clavier garde des touches
+   assez grosses pour un doigt, et l'accueil défile un peu au lieu d'écraser les touches */
+#s1{overflow-y:auto}
+#s1 .pad{min-height:220px}
 /* La case « Coller » : invisible, posée sur les chiffres tapés */
 .display-wrap{position:relative;width:100%;border-radius:14px}
 .display-wrap:focus-within{box-shadow:0 0 0 2px var(--line)}

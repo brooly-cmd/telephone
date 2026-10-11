@@ -323,7 +323,7 @@
   let conn = null;       // le fil direct avec l'ami pendant un appel
   let state = "idle";    // idle (libre), calling (ça sonne chez lui), ringing (ça sonne chez moi), live (en appel)
   let ringTimer = null, retryTimer = null;
-  const PAGE_VERSION = "15.1";   // mission 15 : écrit dans le diagnostic, pour savoir si l'ami a bien la dernière page
+  const PAGE_VERSION = "16";   // mission 15 : écrit dans le diagnostic, pour savoir si l'ami a bien la dernière page
   // Mission 15 : le badge du relais de voix (TURN), demandé à mon relais Cloudflare
   const turn = { servers: null, until: 0, pending: null, why: "pas encore demandé" };
   let joinedAt = 0;   // mission 15 (correctif) : l'heure où on a touché une notification d'appel
@@ -994,7 +994,8 @@
     const browsers = [[/SamsungBrowser\/(\d+)/, "Samsung Internet"], [/EdgA?\/(\d+)/, "Edge"], [/OPR\/(\d+)/, "Opera"],
       [/(?:Firefox|FxiOS)\/(\d+)/, "Firefox"], [/(?:CriOS|Chrome)\/(\d+)/, "Chrome"], [/Version\/(\d+).*Safari/, "Safari"]];
     const br = browsers.find(([re]) => re.test(u));
-    return os + " · " + (br ? br[1] + " " + v(br[0]) : "navigateur inconnu") + " · " + (installed ? "appli installée" : "dans le navigateur");
+    const name = br && navigator.brave && br[1] === "Chrome" ? "Brave" : br && br[1];   // mission 16 : Brave se fait passer pour Chrome
+    return os + " · " + (br ? name + " " + v(br[0]) : "navigateur inconnu") + " · " + (installed ? "appli installée" : "dans le navigateur");
   }
   function diagText(){
     if (!diag) return lastReport;
@@ -1062,7 +1063,8 @@
   // Mission 10 : sur iPhone / iPad, tant que la page n'est pas installée, une aide courte pour l'ajouter à l'écran d'accueil.
   // (Les iPad récents se présentent comme un Mac : on les reconnaît à l'écran tactile.)
   const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  const installed = navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
+  const installed = navigator.standalone === true
+    || matchMedia("(display-mode: standalone), (display-mode: fullscreen), (display-mode: minimal-ui)").matches;
   let helpSeen = false;
   try { helpSeen = localStorage.getItem("aideIphoneVue") === "1"; } catch(e){}
   if (ios && !installed && !helpSeen){
@@ -1076,6 +1078,75 @@
     $("iosHelp").hidden = true;
     try { localStorage.setItem("aideIphoneVue", "1"); } catch(e){}
   });
+
+  // ---------- Mission 16 : installer l'appli sur Android, dans tous les navigateurs ----------
+  // Sur Android, l'appli installée garde le tiroir (localStorage) du navigateur qui l'a installée : même numéro.
+  // Mais chaque navigateur a son propre tiroir : changer de navigateur = un autre numéro.
+  const android = /Android/.test(navigator.userAgent);
+  function androidBrowser(){
+    const u = navigator.userAgent;
+    if (/; wv\)/.test(u)) return "webview";             // page ouverte à l'intérieur d'une autre appli (Facebook, Gmail…)
+    if (navigator.brave) return "brave";                 // Brave porte l'étiquette de Chrome, mais a ce signe en plus
+    if (/SamsungBrowser\//.test(u)) return "samsung";
+    if (/EdgA\//.test(u)) return "edge";
+    if (/OPR\//.test(u)) return "opera";
+    if (/Firefox\//.test(u)) return "firefox";
+    if (/Chrome\//.test(u) && !/(Vivaldi|DuckDuckGo|YaBrowser|MiuiBrowser|HeyTapBrowser|UCBrowser)\//.test(u)) return "chrome";
+    return "autre";
+  }
+  // Le bon menu et les bons mots, navigateur par navigateur (les menus bougent selon les versions :
+  // on donne les deux noms qu'on rencontre, puis une phrase de secours qui marche partout)
+  const INSTALL_HELP = {
+    chrome:  "Pour installer : menu <b>⋮</b> en haut à droite → <b>« Ajouter à l'écran d'accueil »</b> (ou « Installer l'appli ») → <b>« Installer »</b>.",
+    samsung: "Pour installer : menu <b>≡</b> en bas à droite → <b>« Ajouter la page à »</b> → <b>« Écran d'accueil »</b> (ou l'icône <b>⬇</b> dans la barre d'adresse).",
+    edge:    "Pour installer : menu <b>≡</b> (ou <b>…</b>) en bas de l'écran → <b>« Ajouter au téléphone »</b> (ou « Ajouter à l'écran d'accueil », parfois en glissant le menu).",
+    firefox: "Pour installer : menu <b>⋮</b> (en haut ou en bas à droite) → <b>« Ajouter à l'écran d'accueil »</b> (parfois rangé dans <b>« Plus »</b>) → <b>« Ajouter »</b>.",
+    opera:   "Pour installer : menu <b>⋮</b> en bas à droite → <b>« Ajouter à »</b> → <b>« Écran d'accueil »</b> → <b>« Ajouter »</b>.",
+    brave:   "Pour installer : menu <b>⋮</b> (en bas ou en haut à droite) → <b>« Installer l'appli »</b> (ou « Ajouter à l'écran d'accueil ») → <b>« Installer »</b>.",
+    webview: "Cette page est ouverte dans une autre appli. Touche le menu <b>⋮</b> → <b>« Ouvrir dans le navigateur »</b> (ou « Ouvrir dans Chrome »), puis installe depuis là.",
+    autre:   "Pour installer : ouvre le menu du navigateur (souvent <b>⋮</b> ou <b>≡</b>) → <b>« Installer »</b> ou <b>« Ajouter à l'écran d'accueil »</b>."
+  };
+  const INSTALL_ANY = " Sinon, cherche « Installer » ou « écran d'accueil » dans le menu.";
+  let installPrompt = null;      // la fenêtre d'installation que le navigateur nous prête (Chrome, Edge, Samsung, Opera, Brave)
+  let justInstalled = false;     // installée à l'instant depuis cette page
+  let installedElsewhere = false; // déjà installée sur ce téléphone, mais on est dans le navigateur
+  function renderInstall(){
+    $("installHelp").hidden = !android || installed;   // rien sur iPhone, PC, ni dans l'appli installée
+    if (!android || installed) return;
+    const br = androidBrowser();
+    let text;
+    if (justInstalled) text = "C'est installé ! Ferme cette page et ouvre l'icône <b>Lumexa Telephone</b> sur ton écran d'accueil (tu gardes ton numéro).";
+    else if (installedElsewhere) text = "L'appli est déjà installée sur ce téléphone : ouvre plutôt l'icône <b>Lumexa Telephone</b> sur ton écran d'accueil.";
+    else if (installPrompt) text = "Installe le téléphone : il s'ouvrira comme une vraie appli, plus simple pour décrocher.";
+    else text = INSTALL_HELP[br] + (br === "webview" ? "" : INSTALL_ANY);
+    $("installText").innerHTML = text;   // nos propres phrases seulement
+    $("installBtn").hidden = !installPrompt || justInstalled || installedElsewhere;
+  }
+  // Le navigateur dit « je sais installer cette page » : on garde sa fenêtre pour notre bouton
+  window.addEventListener("beforeinstallprompt", e => {
+    e.preventDefault();          // pas le petit bandeau du navigateur : notre bouton à la place
+    installPrompt = e;
+    renderInstall();
+  });
+  window.addEventListener("appinstalled", () => { justInstalled = true; installPrompt = null; renderInstall(); });
+  $("installBtn").addEventListener("click", async () => {
+    const p = installPrompt;
+    if (!p) return;
+    installPrompt = null;        // une fenêtre ne sert qu'une fois
+    try {
+      p.prompt();
+      const choice = await p.userChoice;
+      if (choice && choice.outcome === "accepted") justInstalled = true;
+    } catch(e){}
+    renderInstall();             // refusé : on montre l'aide par le menu
+  });
+  // Chrome sait dire si l'appli est déjà installée sur ce téléphone (grâce à « related_applications » dans la carte d'identité)
+  if (android && !installed && navigator.getInstalledRelatedApps){
+    navigator.getInstalledRelatedApps().then(apps => {
+      if (apps && apps.length){ installedElsewhere = true; renderInstall(); }
+    }).catch(() => {});
+  }
+  renderInstall();
 
   // Mission 10 : le « veilleur » (sw.js). « updateViaCache: none » = le navigateur vérifie toujours s'il y a un nouveau veilleur.
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
@@ -1136,10 +1207,20 @@
   // Comment réautoriser, selon l'appareil
   function howToAllow(){
     if (ios) return "Pour les autoriser : <b>Réglages de l'iPhone → Notifications → Lumexa Telephone → Autoriser les notifications</b>.";
+    // Mission 16 : sur Android, le bon chemin selon l'appli installée ou le navigateur
+    if (android){
+      const where = installed ? "Paramètres du téléphone → <b>Applications</b> → <b>Lumexa Telephone</b> → <b>Notifications</b> → activer"
+        : androidBrowser() === "samsung" ? "menu <b>≡</b> → <b>Paramètres</b> → <b>Sites et téléchargements</b> → <b>Notifications</b> → autorise cette page"
+        : "touche l'icône à gauche de l'adresse (cadenas ou réglages) → <b>Autorisations</b> → <b>Notifications</b> → Autoriser";
+      return "Pour les autoriser : " + where + ", puis recharge la page. Toujours bloqué ? Paramètres du téléphone → <b>Applications</b> → "
+        + (installed ? "ton navigateur" : "ce navigateur") + " → <b>Notifications</b> → activer.";
+    }
     if (/Firefox/.test(navigator.userAgent)) return "Pour les autoriser : clique sur l'icône à gauche de l'adresse, enlève le blocage des <b>Notifications</b>, puis recharge la page.";
     return "Pour les autoriser : clique sur le <b>cadenas</b> à gauche de l'adresse (dans l'appli installée : menu <b>…</b> → Infos de l'appli), mets <b>Notifications</b> sur Autoriser, puis recharge la page.";
   }
-  const braveHelp = "Brave bloque les notifications au départ. Ouvre <b>brave://settings/privacy</b>, allume <b>« Utiliser les services Google pour la messagerie push »</b>, redémarre Brave, puis réessaie. (Ou utilise Edge.)";
+  const braveHelp = android   // mission 16 : sur Android, le chemin passe par le menu de Brave
+    ? "Brave bloque les notifications au départ. Menu <b>⋮</b> → <b>Paramètres</b> → <b>Confidentialité et sécurité</b> → allume <b>« Utiliser les services Google pour la messagerie push »</b>, ferme complètement Brave, rouvre-le, puis réessaie."
+    : "Brave bloque les notifications au départ. Ouvre <b>brave://settings/privacy</b>, allume <b>« Utiliser les services Google pour la messagerie push »</b>, redémarre Brave, puis réessaie. (Ou utilise Edge.)";
 
   // Mon jeton secret : tiré une seule fois, puis gardé dans le navigateur (comme mon numéro)
   function myToken(){
@@ -1178,10 +1259,13 @@
     if (r.ok) try { localStorage.setItem("notifEnvoyee", sub.endpoint); } catch(e){}
     return r;
   }
-  function showRelayError(r){
+  function showRelayError(r, sub){
     notifState("off", "pas activées");
+    let host = ""; try { host = new URL(sub.endpoint).hostname; } catch(e){}
     notifMessage(r.erreur === "jeton_different"
       ? "Ce numéro est déjà inscrit aux notifications depuis un autre appareil ou navigateur."
+      : r.erreur === "abonnement"   // mission 16 : un navigateur qui passe par un service de notification inconnu du relais
+      ? "Ce navigateur passe par un service de notification que le relais ne connaît pas" + (host ? " (" + host + ")" : "") + ". Essaie avec Chrome ou Samsung Internet."
       : (r.message || "Le relais a refusé l'inscription.") + " Réessaie avec le bouton.");
   }
 
@@ -1199,7 +1283,7 @@
       const sub = await mySubscription(true);
       const r = await sendSubscription(sub, false);
       if (r.ok){ notifState("on", "activées"); notifMessage(""); }
-      else showRelayError(r);   // (pas d'internet : la page réessaie toute seule au prochain retour)
+      else showRelayError(r, sub);   // (pas d'internet : la page réessaie toute seule au prochain retour)
     } catch(e){
       notifState("", "pas encore activées");
       notifMessage(navigator.brave ? braveHelp : "");
@@ -1230,7 +1314,7 @@
       }
       const r = await sendSubscription(sub, true);
       if (r.ok){ notifState("on", "activées"); notifMessage("C'est prêt : tes amis pourront te prévenir, même page fermée.", true); }
-      else showRelayError(r);
+      else showRelayError(r, sub);
     } finally { notifBusy = false; }
   });
 
